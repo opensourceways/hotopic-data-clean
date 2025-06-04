@@ -1,0 +1,11 @@
+# 忽略Docker构建无关文件
+.git/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.example
+venv/
+*.log
+tests/

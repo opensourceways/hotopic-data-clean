@@ -1,0 +1,25 @@
+# Python开发环境
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+.env
+.env.example
+
+# 日志文件
+*.log
+
+# IDE文件
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 本地测试文件
+/tmp/
+temp/
+
+# Windows系统文件
+Thumbs.db
+Desktop.ini

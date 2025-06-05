@@ -65,23 +65,23 @@ class BaseCleaner(ABC):
                 'title': raw_data['title'],
                 'body': raw_data['body'],
                 'url': raw_data.get('url', ''),
-                'createdat': raw_data.get('createdat', datetime.now()),
-                'topicclosed': raw_data.get('closed', False),
+                'created_at': raw_data.get('createdat', datetime.now()),
+                'topic_closed': raw_data.get('closed', False),
                 'history': raw_data.get('history', '[]')
             },
             'processed': {
-                'cleandata': self._basic_clean(llm_content),
-                'topicsummary': ''
+                'clean_data': self._basic_clean(llm_content),
+                'topic_summary': ''
             }
         }
 
     def _format_for_db(self, record):
         return {
             **record['base_data'],
-            'cleandata': record['processed']['cleandata'],
-            'topicsummary': record['processed']['topicsummary'],
-            'sourcetype': self.source_type,
-            'sourceid': record['base_data']['id']
+            'clean_data': record['processed']['cleandata'],
+            'topic_summary': record['processed']['topicsummary'],
+            'source_type': self.source_type,
+            'source_id': record['base_data']['id']
         }
 
     @property

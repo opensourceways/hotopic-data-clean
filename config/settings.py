@@ -4,12 +4,22 @@ import yaml
 
 class Settings:
     def __init__(self):
-        config_path_env = os.getenv("CONFIG_PATH")
-        if not config_path_env:
+        base_config_path = "config/conf.yaml"
+        with open(base_config_path, 'r', encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+            self.llm_api_url: str = config.get("LLM_API_URL")
+            self.llm_model: str = config.get("LLM_MODEL")
+            self.cann_forum_prompt: str = config.get("CANN_FORUM_PROMPT")
+            self.cann_issue_prompt: str = config.get("CANN_ISSUE_PROMPT")
+            self.openubmc_forum_prompt: str = config.get("OPENUBMC_FORUM_PROMPT")
+            self.openubmc_issue_prompt: str = config.get("OPENUBMC_ISSUE_PROMPT")
+
+        secret_config_path = os.getenv("SECRET_CONFIG")
+        if not secret_config_path:
             raise ValueError("CONFIG_PATH environment variable is not set.")
-        with open(config_path_env, 'r', encoding="utf-8") as config_file:
+        with open(secret_config_path, 'r', encoding="utf-8") as config_file:
             config = yaml.safe_load(config_file)
-            self.env: str = config.get("APP_ENV")
+            self.env = config.get("APP_ENV")
             self.account: str = config.get("ACCOUNT")
             self.password: str = config.get("PASSWORD")
             self.client_id: str = config.get("CLIENT_ID")
@@ -17,8 +27,8 @@ class Settings:
             self.one_id_api: str = config.get("ONE_ID_API")
             self.cann_forum_api: str = config.get("CANN_FORUM_API")
             self.cann_forum_topic_detail_api: str = config.get("CANN_FORUM_TOPIC_DETAIL_API")
-
-        # os.remove(config_path_env)
-
+            self.openubmc_forum_api: str = config.get("OPENUBMC_FORUM_API")
+            self.openubmc_forum_topic_detail_api: str = config.get("OPENUBMC_FORUM_TOPIC_DETAIL_API")
+            self.llm_api_key: str = config.get("LLM_API_KEY")
 
 settings = Settings()

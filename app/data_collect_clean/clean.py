@@ -56,32 +56,34 @@ class BaseCleaner(ABC):
             raw_data['id'] = raw_data['uuid'].split('-')[-1]
         if not all(k in raw_data for k in ('id', 'title', 'body')):
             raise ValueError("缺失必要字段")
-
+        created_at = raw_data.get('created_at', datetime.now())
+        if isinstance(created_at, datetime):
+            created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
         llm_content = self._llm_process(f"标题：{raw_data['title']}\n内容：{raw_data['body']}")
-
+        url = raw_data.get('html', '') if self.source_type == "issue" else raw_data.get('url', '')
         return {
             'base_data': {
                 'id': raw_data['id'],
                 'title': raw_data['title'],
                 'body': raw_data['body'],
-                'url': raw_data.get('url', ''),
-                'createdat': raw_data.get('createdat', datetime.now()),
-                'topicclosed': raw_data.get('closed', False),
+                'url': url,
+                'created_at': created_at,
+                'topic_closed': raw_data.get('closed', False),
                 'history': raw_data.get('history', '[]')
             },
             'processed': {
-                'cleandata': self._basic_clean(llm_content),
-                'topicsummary': ''
+                'clean_data': self._basic_clean(llm_content),
+                'topic_summary': ''
             }
         }
 
     def _format_for_db(self, record):
         return {
             **record['base_data'],
-            'cleandata': record['processed']['cleandata'],
-            'topicsummary': record['processed']['topicsummary'],
-            'sourcetype': self.source_type,
-            'sourceid': record['base_data']['id']
+            'clean_data': record['processed']['clean_data'],
+            'topic_summary': record['processed']['topic_summary'],
+            'source_type': self.source_type,
+            'source_id': record['base_data']['id']
         }
 
     @property

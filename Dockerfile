@@ -13,6 +13,7 @@ RUN dnf update -y && \
         gcc-c++ \
         make \
         libffi-devel \
+        postgresql-devel \
         git && \
     dnf install -y libstdc++ libffi && \
     pip install --no-cache-dir gunicorn uvicorn && \
@@ -24,7 +25,8 @@ RUN dnf update -y && \
         gcc \
         gcc-c++ \
         make \
-        libffi-devel && \
+        libffi-devel \
+        postgresql-devel && \
     dnf clean all
 
 

@@ -3,7 +3,10 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import func
 from config.settings import settings
+import logging
 
+
+logging.basicConfig(level=logging.INFO)
 Base = declarative_base()
 
 

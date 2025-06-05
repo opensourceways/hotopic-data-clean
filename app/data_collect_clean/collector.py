@@ -56,7 +56,7 @@ class OneIDAPIMixin:
             return None
 
 
-class IssueCollector(BaseCollector, OneIDAPIMixin):
+class BaseDataStatCollect(BaseCollector, OneIDAPIMixin):
     def __init__(self, community: str, dws_name: str):
         super().__init__()
         self.community = community
@@ -65,40 +65,82 @@ class IssueCollector(BaseCollector, OneIDAPIMixin):
             'Referer': 'https://beta.datastat.osinfra.cn/index-dict'
         })
 
-    @property
-    def source_name(self) -> str:
-        return "issue"
+    def _get_filters(self, start_time: datetime) -> List[Dict]:
+        return []
 
     def collect(self, start_time: datetime) -> List[Dict]:
         token = self._login()
         if not token:
             raise ValueError("登录失败")
-        print(self.community, self.dws_name)
-        response = self._request(
-            'POST',
-            settings.data_api.format(community=self.community),
-            headers={'token': token},
-            params={"page": 1, "page_size": 100},
-            json={
-                "community": self.community,
-                "dim": [],
-                "name": self.dws_name,
-                "page": 1,
-                "page_size": 100,
-                "filters": [
-                    {"column": "is_issue", "operator": "=", "value": "1"},
-                    {"column": "created_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")}
-                ],
-                "conditonsLogic": "AND",
-                "order_field": "uuid",
-                "order_dir": "ASC"
-            }
-        )
-        print(response.json())
-        if not response:
-            return []
-        data = response.json().get('data', [])
-        return data
+
+        all_data = []
+        page = 1
+        while True:
+            response = self._request(
+                'POST',
+                settings.data_api.format(community=self.community),
+                headers={'token': token},
+                params={"page": page, "page_size": 100},
+                json={
+                    "community": self.community,
+                    "dim": [],
+                    "name": self.dws_name,
+                    "page": page,
+                    "page_size": 100,
+                    "filters": self._get_filters(start_time),
+                    "conditonsLogic": "AND",
+                    "order_field": "uuid",
+                    "order_dir": "ASC"
+                }
+            )
+            if not response:
+                break
+
+            response_data = response.json()
+            page_data = response_data.get('data', [])
+            all_data.extend(page_data)
+
+            # 判断是否还有下一页
+            total = response_data.get('total', 0)
+            if page * 100 >= total:
+                break
+            page += 1
+            time.sleep(1)  # 添加请求间隔防止被封
+
+        return all_data
+
+
+class IssueCollector(BaseDataStatCollect):
+
+    @property
+    def source_name(self) -> str:
+        return "issue"
+
+    def _get_filters(self, start_time: datetime) -> List[Dict]:
+        return [
+            {"column": "is_issue", "operator": "=", "value": "1"},
+            {"column": "created_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")}
+        ]
+
+
+class MailCollect(BaseDataStatCollect):
+    @property
+    def source_name(self) -> str:
+        return "mail"
+
+    def _get_filters(self, start_time: datetime) -> List[Dict]:
+        return [
+            {"column": "created_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")}
+        ]
+
+
+def get_forum_collector(community: str) -> BaseCollector:
+    if community == 'cann':
+        return CANNForumCollector()
+    elif community == 'openubmc':
+        return OpenUBMCForumCollector()
+    else:
+        raise ValueError(f"Unsupported community: {community}")
 
 
 class CANNForumCollector(BaseCollector):

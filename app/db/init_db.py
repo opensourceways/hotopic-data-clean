@@ -17,9 +17,6 @@ def init_database():
         conn.autocommit = True
         cursor = conn.cursor()
 
-        # 创建数据库（带容错）
-        cursor.execute(f"CREATE DATABASE {settings.db_name} ENCODING 'UTF8';")
-
         # 创建角色并授权（带存在性检查）
         cursor.execute(f"""
             DO $$

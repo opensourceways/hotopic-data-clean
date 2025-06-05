@@ -4,7 +4,7 @@ import yaml
 
 class Settings:
     def __init__(self):
-        base_config_path = "config/conf.yaml"
+        base_config_path = os.path.join(os.path.dirname(__file__), "conf.yaml")
         with open(base_config_path, 'r', encoding="utf-8") as f:
             config = yaml.safe_load(f)
             self.llm_api_url: str = config.get("LLM_API_URL")
@@ -16,7 +16,7 @@ class Settings:
 
         secret_config_path = os.getenv("SECRET_CONFIG")
         if not secret_config_path:
-            raise ValueError("CONFIG_PATH environment variable is not set.")
+            raise ValueError("SECRET_CONFIG environment variable is not set.")
         with open(secret_config_path, 'r', encoding="utf-8") as config_file:
             config = yaml.safe_load(config_file)
             self.env = config.get("APP_ENV")
@@ -28,7 +28,14 @@ class Settings:
             self.cann_forum_api: str = config.get("CANN_FORUM_API")
             self.cann_forum_topic_detail_api: str = config.get("CANN_FORUM_TOPIC_DETAIL_API")
             self.openubmc_forum_api: str = config.get("OPENUBMC_FORUM_API")
-            self.openubmc_forum_topic_detail_api: str = config.get("OPENUBMC_FORUM_TOPIC_DETAIL_API")
+            self.openubmc_forum_topic_detail_api: str = config.get("OPENUBMC_FORUM_DETAIL_API")
             self.llm_api_key: str = config.get("LLM_API_KEY")
+            self.community: str = config.get("COMMUNITY")
+            self.dws_name: str = config.get("DWS_NAME")
+            self.db_user: str = config.get("DB_USER")
+            self.db_password: str = config.get("DB_PASSWORD")
+            self.db_host: str = config.get("DB_HOST")
+            self.db_port: str = config.get("DB_PORT")
+            self.db_name: str = config.get("DB_NAME")
 
 settings = Settings()

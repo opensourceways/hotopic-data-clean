@@ -42,9 +42,9 @@ class BaseCleaner(ABC):
         text = re.sub(r'<.*?>', '', text)
         return re.sub(r'[^\u4e00-\u9fa5a-zA-Z0-9，。！？；：、]', ' ', text).strip()
 
-    def process(self):
-
-        for raw_data in self.collector.fetch_data():
+    def process(self, start_date):
+        print(self.collector)
+        for raw_data in self.collector.collect(start_date):
             try:
                 record = self._build_record(raw_data)
                 yield self._format_for_db(record)
@@ -52,7 +52,8 @@ class BaseCleaner(ABC):
                 logger.error(f"处理失败: {raw_data.get('id', '未知ID')} - {str(e)}")
 
     def _build_record(self, raw_data):
-
+        if 'uuid' in raw_data:
+            raw_data['id'] = raw_data['uuid'].split('-')[-1]
         if not all(k in raw_data for k in ('id', 'title', 'body')):
             raise ValueError("缺失必要字段")
 
@@ -70,7 +71,7 @@ class BaseCleaner(ABC):
             },
             'processed': {
                 'cleandata': self._basic_clean(llm_content),
-                'topicsummary': llm_content[:100] + '...' if len(llm_content) > 100 else llm_content
+                'topicsummary': ''
             }
         }
 
@@ -98,7 +99,7 @@ class CANNForumCleaner(BaseCleaner):
         return settings.cann_forum_prompt
 
 
-class CANNIssueCleaner(CANNForumCleaner):
+class CANNIssueCleaner(BaseCleaner):
     @property
     def source_type(self):
         return "issue"
@@ -116,7 +117,7 @@ class OpenUBMCForumCleaner(BaseCleaner):
         return settings.openubmc_forum_prompt
 
 
-class OpenUBMCIssueCleaner(OpenUBMCForumCleaner):
+class OpenUBMCIssueCleaner(BaseCleaner):
     @property
     def source_type(self):
         return "issue"

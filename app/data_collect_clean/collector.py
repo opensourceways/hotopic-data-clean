@@ -11,8 +11,7 @@ class BaseCollector(ABC):
     def __init__(self):
         self._session = requests.Session()
         self._session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
         })
 
     def _request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
@@ -30,7 +29,7 @@ class BaseCollector(ABC):
             return None
 
     @abstractmethod
-    def collect(self) -> List[Dict]:
+    def collect(self, start_date: datetime) -> List[Dict]:
         pass
 
     @property
@@ -62,6 +61,9 @@ class IssueCollector(BaseCollector, OneIDAPIMixin):
         super().__init__()
         self.community = community
         self.dws_name = dws_name
+        self._session.headers.update({
+            'Referer': 'https://beta.datastat.osinfra.cn/index-dict'
+        })
 
     @property
     def source_name(self) -> str:
@@ -71,7 +73,7 @@ class IssueCollector(BaseCollector, OneIDAPIMixin):
         token = self._login()
         if not token:
             raise ValueError("登录失败")
-
+        print(self.community, self.dws_name)
         response = self._request(
             'POST',
             settings.data_api.format(community=self.community),
@@ -92,6 +94,7 @@ class IssueCollector(BaseCollector, OneIDAPIMixin):
                 "order_dir": "ASC"
             }
         )
+        print(response.json())
         if not response:
             return []
         data = response.json().get('data', [])
@@ -101,16 +104,15 @@ class IssueCollector(BaseCollector, OneIDAPIMixin):
 class CANNForumCollector(BaseCollector):
     SECTION_IDS = ['0106101385921175004', '0163125572293226003']
 
-    def __init(self, start_date: datetime):
+    def __init(self):
         super().__init__()
-        self.start_date = start_date
         self._session.headers.update({'Referer': 'https://www.hiascend.com'})
 
     @property
     def source_name(self) -> str:
         return "forum"
 
-    def collect(self):
+    def collect(self, start_date: datetime):
         all_data = []
         for section_id in self.SECTION_IDS:
             first_page_response = self._fetch_page(section_id, 1)
@@ -122,11 +124,11 @@ class CANNForumCollector(BaseCollector):
             total_count = first_page_data.get('totalCount', 0)
             total_pages = (total_count + 99) // 100
 
-            all_data.extend(self._process_page(first_page_data))
+            all_data.extend(self._process_page(first_page_data, start_date))
 
             for page in range(2, total_pages + 1):
                 if page_data := self._fetch_page(section_id, page):
-                    all_data.extend(self._process_page(page_data.json().get('data', {})))
+                    all_data.extend(self._process_page(page_data.json().get('data', {}), start_date))
                 time.sleep(1)  # 防止请求过于频繁被封禁
         return all_data
 
@@ -142,12 +144,12 @@ class CANNForumCollector(BaseCollector):
             }
         )
 
-    def _process_page(self, page_data: dict) -> List[Dict]:
+    def _process_page(self, page_data: dict, start_date: datetime) -> List[Dict]:
         return [self._parse_topic(t) for t in page_data.get('resultList', [])
-                if t.get('solved') != 1 and self._is_valid_time(t['createTime'])]
+                if t.get('solved') != 1 and self._is_valid_time(t['createTime'], start_date)]
 
-    def _is_valid_time(self, create_time: str) -> bool:
-        return datetime.strptime(create_time, "%Y%m%d%H%M%S") > self.start_date
+    def _is_valid_time(self, create_time: str, start_date: datetime) -> bool:
+        return datetime.strptime(create_time, "%Y%m%d%H%M%S") > start_date
 
     def _parse_topic(self, topic: dict) -> Dict:
         topicId = topic['topicId']
@@ -166,20 +168,18 @@ class CANNForumCollector(BaseCollector):
 
 
 class OpenUBMCForumCollector(BaseCollector):
-    def __init__(self, start_date: datetime, end_date: datetime):
+    def __init__(self):
         super().__init__()
-        self.start_date = start_date
-        self.end_date = end_date
 
     @property
     def source_name(self) -> str:
         return "forum"
 
-    def collect(self) -> List[Dict]:
+    def collect(self, start_date) -> List[Dict]:
         all_topics = []
         page = 1
         while data := self._fetch_page(page):
-            all_topics.extend(self._process_page(data))
+            all_topics.extend(self._process_page(data, start_date))
             if len(data.get('topics', [])) < 30:
                 break
             page += 1
@@ -193,16 +193,16 @@ class OpenUBMCForumCollector(BaseCollector):
         )
         return response.json().get('topic_list', {}) if response else None
 
-    def _process_page(self, page_data: dict) -> List[Dict]:
+    def _process_page(self, page_data: dict, start_date: datetime) -> List[Dict]:
         return [self._parse_topic(t) for t in page_data.get('topics', [])
-                if not self._is_excluded_category(t) and self._is_valid_time(t)]
+                if not self._is_excluded_category(t) and self._is_valid_time(t, start_date)]
 
     def _is_excluded_category(self, topic: dict) -> bool:
         return topic.get('category_id') == 40
 
-    def _is_valid_time(self, topic: dict) -> bool:
+    def _is_valid_time(self, topic: dict, start_date: datetime) -> bool:
         created_at = datetime.strptime(topic['created_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
-        return self.start_date <= created_at <= self.end_date
+        return start_date <= created_at
 
     def _parse_topic(self, topic: dict) -> Dict:
         return {
@@ -215,6 +215,7 @@ class OpenUBMCForumCollector(BaseCollector):
         }
 
     def _get_topic_body(self, topic_id: int) -> str:
+        print(topic_id)
         response = self._request('GET', settings.openubmc_forum_topic_detail_api.format(topic_id=topic_id))
         if not response:
             return ''

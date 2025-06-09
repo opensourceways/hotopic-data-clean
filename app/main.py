@@ -10,6 +10,7 @@ from app.db import base, init_db
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import text
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 
 app = FastAPI(title="数据清洗服务",
@@ -18,6 +19,7 @@ app = FastAPI(title="数据清洗服务",
 app.include_router(api.router, prefix="/api/v1", tags=["webhooks"])
 scheduler = BackgroundScheduler()
 
+
 @app.get("/health", tags=["监控"])
 async def health_check():
     return {
@@ -25,7 +27,28 @@ async def health_check():
         "environment": settings.env}
 
 
-def main():
+@scheduler.scheduled_job(CronTrigger(day="*", hour=0, minute=0))  # 每天00:00执行
+def scheduled_task():
+    auto_process()
+
+
+@app.on_event("startup")
+async def startup_event():
+    scheduler.start()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown()
+
+
+@app.post("/manual-run")
+async def manual_trigger():
+    auto_process()
+    return {"status": "manual run completed"}
+
+
+def auto_process():
     """全自动执行采集+清洗"""
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
     init_db.init_database()
@@ -87,7 +110,3 @@ def main():
         import traceback
         traceback.print_exc()
         logging.error(f"执行失败: {str(e)}")
-
-
-if __name__ == "__main__":
-    main()

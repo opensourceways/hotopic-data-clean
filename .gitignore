@@ -19,6 +19,8 @@ venv/
 # 本地测试文件
 /tmp/
 temp/
+secret.yaml
+
 
 # Windows系统文件
 Thumbs.db

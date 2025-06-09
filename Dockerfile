@@ -18,7 +18,7 @@ RUN dnf update -y && \
         git && \
     dnf install -y libstdc++ libffi && \
     pip install --no-cache-dir gunicorn uvicorn && \
-    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -r requirements.txt --upgrade && \
     dnf remove -y \
         python3-devel \
         gcc \

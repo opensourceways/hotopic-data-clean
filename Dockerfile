@@ -7,19 +7,18 @@ COPY requirements.txt .
 RUN dnf update -y && \
     dnf install -y \
         python3 \
-        python3-devel \
         python3-pip \
         gcc \
+        python3-devel \
         gcc-c++ \
         make \
         libffi-devel \
         postgresql-devel \
+        postgresql-libs \
         git && \
     dnf install -y libstdc++ libffi && \
     pip install --no-cache-dir gunicorn uvicorn && \
     pip install --no-cache-dir -r requirements.txt && \
-    adduser -u 1000 hotopic-collect-clean && \
-        chown -R hotopic-collect-clean:hotopic-collect-clean /app && \
     dnf remove -y \
         python3-devel \
         gcc \
@@ -27,8 +26,9 @@ RUN dnf update -y && \
         make \
         libffi-devel \
         postgresql-devel && \
-    dnf clean all
-
+    dnf clean all && \
+    adduser -u 1000 hotopic-collect-clean && \
+    chown -R hotopic-collect-clean:hotopic-collect-clean /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

@@ -27,7 +27,7 @@ async def health_check():
         "environment": settings.env}
 
 
-@scheduler.scheduled_job(CronTrigger(day="*", hour=0, minute=0))  # 每天00:00执行
+@scheduler.scheduled_job(CronTrigger(day="fri", hour=14, minute=0))  # 每周五14:00执行
 def scheduled_task():
     auto_process()
 

@@ -98,14 +98,12 @@ class BaseDataStatCollect(BaseCollector, OneIDAPIMixin):
 
             response_data = response.json()
             page_data = response_data.get('data', [])
-            all_data.extend(page_data)
-
-            # 判断是否还有下一页
-            total = response_data.get('total', 0)
-            if page * 100 >= total:
+            if not page_data:
                 break
+
+            all_data.extend(page_data)
             page += 1
-            time.sleep(1)  # 添加请求间隔防止被封
+            time.sleep(0.5)  # 添加请求间隔防止被封
 
         return all_data
 
@@ -119,7 +117,7 @@ class IssueCollector(BaseDataStatCollect):
     def _get_filters(self, start_time: datetime) -> List[Dict]:
         return [
             {"column": "is_issue", "operator": "=", "value": "1"},
-            {"column": "created_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")}
+            {"column": "created_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")},
         ]
 
 
@@ -188,7 +186,7 @@ class CANNForumCollector(BaseCollector):
 
     def _process_page(self, page_data: dict, start_date: datetime) -> List[Dict]:
         return [self._parse_topic(t) for t in page_data.get('resultList', [])
-                if t.get('solved') != 1 and self._is_valid_time(t['createTime'], start_date)]
+                if self._is_valid_time(t['createTime'], start_date)]
 
     def _is_valid_time(self, create_time: str, start_date: datetime) -> bool:
         return datetime.strptime(create_time, "%Y%m%d%H%M%S") > start_date
@@ -244,7 +242,7 @@ class OpenUBMCForumCollector(BaseCollector):
 
     def _is_valid_time(self, topic: dict, start_date: datetime) -> bool:
         created_at = datetime.strptime(topic['created_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
-        return start_date <= created_at
+        return start_date <= created_at < datetime(2025, 6, 6)
 
     def _parse_topic(self, topic: dict) -> Dict:
         return {
@@ -253,7 +251,8 @@ class OpenUBMCForumCollector(BaseCollector):
             'created_at': datetime.strptime(topic['created_at'], '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%Y-%m-%d %H:%M:%S'),
             'body': self._get_topic_body(topic['id']),
             'url': self._get_topic_url(topic['id']),
-            'type': 'forum'
+            'type': 'forum',
+            'state': 'closed' if topic['closed'] else 'open'
         }
 
     def _get_topic_body(self, topic_id: int) -> str:

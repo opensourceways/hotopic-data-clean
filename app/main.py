@@ -1,5 +1,6 @@
 import json
 import logging
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import FastAPI
@@ -11,11 +12,24 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import text
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from contextlib import asynccontextmanager
 
 
-app = FastAPI(title="数据清洗服务",
-              description="提供数据清洗处理API",
-              version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 应用启动时
+    scheduler.start()
+    yield
+    # 应用关闭时
+    scheduler.shutdown()
+
+
+app = FastAPI(
+    lifespan=lifespan,
+    title="数据清洗服务",
+    description="提供数据清洗处理API",
+    version="1.0.0"
+)
 app.include_router(api.router, prefix="/api/v1", tags=["webhooks"])
 scheduler = BackgroundScheduler()
 
@@ -27,19 +41,9 @@ async def health_check():
         "environment": settings.env}
 
 
-@scheduler.scheduled_job(CronTrigger(day="fri", hour=14, minute=0))  # 每周五14:00执行
+@scheduler.scheduled_job(CronTrigger(day=5, hour=14, minute=0))  # 每周五14:00执行
 def scheduled_task():
     auto_process()
-
-
-@app.on_event("startup")
-async def startup_event():
-    scheduler.start()
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    scheduler.shutdown()
 
 
 @app.post("/manual-run")
@@ -81,32 +85,50 @@ def auto_process():
         logging.info(f"数据已成功导出至 {output_path}")
 
         with base.SessionLocal() as session:
-            for record in raw_data:
-                stmt = insert(base.Discussion).values(
-                    source_id=record['source_id'],
-                    source_type=record['source_type'],
-                    title=record['title'],
-                    body=record['body'],
-                    url=record['url'],
-                    topic_summary=record['topic_summary'],
-                    topic_closed=record['topic_closed'],
-                    created_at=record['created_at'],
-                    clean_data=record['clean_data'],
-                    history=record['history']
-                ).on_conflict_do_update(
-                    index_elements=['source_id'],
-                    set_={
-                        'history': text(
-                            "history || jsonb_build_array(jsonb_build_object('title', EXCLUDED.title, 'body', EXCLUDED.body, 'time', NOW()::timestamp))"
-                        ),
-                        'title': record['title'],
-                        'body': record['body'],
-                        'time': datetime.now()
-                    }
-                )
-                session.execute(stmt)
-            session.commit()
+            try:
+                BATCH_SIZE = 50
+                for i in range(0, len(raw_data), BATCH_SIZE):
+                    batch = raw_data[i:i+BATCH_SIZE]
+                    for record in batch:
+                        clean_data = record['clean_data']
+                        if isinstance(clean_data, str) and clean_data.startswith('"'):
+                            try:
+                                clean_data = json.loads(clean_data)  # 去除多余的双引号转义
+                            except json.JSONDecodeError:
+                                pass
+                        stmt = insert(base.Discussion).values(
+                            source_id=record['source_id'],
+                            source_type=record['source_type'],
+                            title=record['title'],
+                            body=record['body'],
+                            url=record['url'],
+                            topic_summary=record['topic_summary'],
+                            topic_closed=record['topic_closed'],
+                            created_at=record['created_at'],
+                            clean_data=clean_data,
+                            history=record['history'],
+                            source_closed=record['source_closed'],
+                        ).on_conflict_do_update(
+                            index_elements=['source_id'],
+                            set_={
+                                'history': text(
+                                    "history || jsonb_build_array(jsonb_build_object('title', EXCLUDED.title, 'body', EXCLUDED.body, 'time', NOW()::timestamp))"
+                                ),
+                                'title': record['title'],
+                                'body': record['body'],
+                                'source_closed': record['source_closed'],
+                            }
+                        )
+                        session.execute(stmt)
+                    session.commit()
+                    session.expire_all()
+                    logging.info(f"已提交 {min(i+BATCH_SIZE, len(raw_data))}/{len(raw_data)} 条数据")
+            except Exception as e:
+                session.rollback()
+                raise e
+            finally:
+                session.close()
     except Exception as e:
-        import traceback
+        import traceb
         traceback.print_exc()
         logging.error(f"执行失败: {str(e)}")

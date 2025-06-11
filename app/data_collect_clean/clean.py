@@ -5,6 +5,8 @@ from retrying import retry
 from openai import OpenAI
 from datetime import datetime
 from config.settings import settings
+from tqdm import tqdm
+
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +45,9 @@ class BaseCleaner(ABC):
         return re.sub(r'[^\u4e00-\u9fa5a-zA-Z0-9，。！？；：、]', ' ', text).strip()
 
     def process(self, start_date):
-        print(self.collector)
-        for raw_data in self.collector.collect(start_date):
+        data_before_clean = self.collector.collect(start_date)
+        print(len(data_before_clean))
+        for raw_data in tqdm(data_before_clean, desc="Processing data"):
             try:
                 record = self._build_record(raw_data)
                 yield self._format_for_db(record)
@@ -60,7 +63,7 @@ class BaseCleaner(ABC):
         if isinstance(created_at, datetime):
             created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
         llm_content = self._llm_process(f"标题：{raw_data['title']}\n内容：{raw_data['body']}")
-        url = raw_data.get('html', '') if self.source_type == "issue" else raw_data.get('url', '')
+        url = raw_data.get('html_url', '') if self.source_type == "issue" else raw_data.get('url', '')
         return {
             'base_data': {
                 'id': raw_data['id'],
@@ -73,7 +76,8 @@ class BaseCleaner(ABC):
             },
             'processed': {
                 'clean_data': self._basic_clean(llm_content),
-                'topic_summary': ''
+                'topic_summary': '',
+                'source_closed': raw_data.get('state', '') == 'closed',
             }
         }
 
@@ -83,7 +87,8 @@ class BaseCleaner(ABC):
             'clean_data': record['processed']['clean_data'],
             'topic_summary': record['processed']['topic_summary'],
             'source_type': self.source_type,
-            'source_id': record['base_data']['id']
+            'source_id': record['base_data']['id'],
+            'source_closed': record['processed']['source_closed'],
         }
 
     @property

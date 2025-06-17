@@ -195,5 +195,4 @@ def build_upsert_statement(record: dict):
 
 def handle_processing_error(e: Exception):
     """统一错误处理"""
-    traceback.print_exc()
     logging.error(f"执行失败: {str(e)}")

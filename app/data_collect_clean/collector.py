@@ -28,7 +28,7 @@ class BaseCollector(ABC):
             response.raise_for_status()
             return response
         except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
+            logging.error(f"Request failed: {e}")
             return None
 
     @abstractmethod
@@ -59,7 +59,7 @@ class OneIDAPIMixin:
                 })
             return response.cookies.get('_U_T_', '')
         except Exception as e:
-            print(f"Login failed: {e}")
+            logging.error(f"Login failed: {e}")
             return None
 
 
@@ -113,7 +113,7 @@ class BaseDataStatCollect(BaseCollector, OneIDAPIMixin):
             all_data.extend(valid_page_data)
             page += 1
             time.sleep(0.5)  # 添加请求间隔防止被封
-        print(f"共有{len(all_data)}条数据")
+        logging.info(f"共有{len(all_data)}条数据")
         return all_data
 
 
@@ -179,7 +179,7 @@ class CANNForumCollector(BaseCollector):
         for section_id in self.SECTION_IDS:
             first_page_response = self._fetch_page(section_id, 1)
             if not first_page_response:
-                print(f"获取第一页数据失败")
+                logging.error(f"获取第一页数据失败")
                 continue
             logging.info(self._session.headers)
             first_page_data = first_page_response.json().get('data', {})
@@ -191,7 +191,7 @@ class CANNForumCollector(BaseCollector):
                 if page_data := self._fetch_page(section_id, page):
                     all_data.extend(self._process_page(page_data.json().get('data', {}), start_date))
                 time.sleep(0.5)  # 防止请求过于频繁被封禁
-        print(f"共有 {len(all_data)} 个主题")
+        logging.info(f"共有 {len(all_data)} 个主题")
         return all_data
 
     def _fetch_page(self, section_id: str, page: int) -> Optional[requests.Response]:
@@ -256,7 +256,7 @@ class OpenUBMCForumCollector(BaseCollector):
             if len(data.get('topics', [])) < 30:
                 break
             page += 1
-        print(f"共有 {len(all_topics)} 个主题")
+        logging.info(f"共有 {len(all_topics)} 个主题")
         return all_topics
 
     def _fetch_page(self, page: int) -> Optional[dict]:

@@ -70,10 +70,6 @@ class BaseCleaner(ABC):
 
     def process(self, start_date):
         data_before_clean = self.collector.collect(start_date)
-        with open('html_urls.txt', 'w', encoding='utf-8') as f:
-            for data in data_before_clean:
-                if url := data.get('html_url'):
-                    f.write(f"{url}\n")
         for raw_data in tqdm(data_before_clean, desc="Processing data"):
             try:
                 record = self._build_record(raw_data)

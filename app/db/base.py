@@ -32,17 +32,19 @@ class Discussion(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    source_id = Column(Integer, nullable=False, unique=True)
+    source_id = Column(Text, nullable=False, unique=True)
     title = Column(String(255), nullable=False)
     body = Column(Text)
     url = Column(String(512))
     clean_data = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
     topic_summary = Column(Text)
     topic_closed = Column(Boolean, default=False)
     source_type = Column(String(50), nullable=False)
     history = Column(JSON)
     source_closed = Column(Boolean, default=False)
+    is_deleted = Column(Boolean, default=False)
 
 
 def check_and_create_tables():

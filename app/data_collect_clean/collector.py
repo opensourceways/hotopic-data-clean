@@ -1,3 +1,4 @@
+import logging
 import time
 from datetime import datetime, timedelta
 import requests
@@ -5,6 +6,7 @@ from bs4 import BeautifulSoup
 from config.settings import settings
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional
+from app.data_collect_clean import validator
 
 
 class BaseCollector(ABC):
@@ -13,6 +15,7 @@ class BaseCollector(ABC):
         self._session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
         })
+        self._validator = None
 
     def _request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
         try:
@@ -25,7 +28,7 @@ class BaseCollector(ABC):
             response.raise_for_status()
             return response
         except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
+            logging.error(f"Request failed: {e}")
             return None
 
     @abstractmethod
@@ -35,6 +38,10 @@ class BaseCollector(ABC):
     @property
     @abstractmethod
     def source_name(self) -> str:
+        pass
+
+    @abstractmethod
+    def _is_valid(self, url: str) -> bool:
         pass
 
 
@@ -52,7 +59,7 @@ class OneIDAPIMixin:
                 })
             return response.cookies.get('_U_T_', '')
         except Exception as e:
-            print(f"Login failed: {e}")
+            logging.error(f"Login failed: {e}")
             return None
 
 
@@ -101,14 +108,20 @@ class BaseDataStatCollect(BaseCollector, OneIDAPIMixin):
             if not page_data:
                 break
 
-            all_data.extend(page_data)
+            valid_page_data = [d for d in page_data if self._is_valid(d['html_url'])]
+
+            all_data.extend(valid_page_data)
             page += 1
             time.sleep(0.5)  # 添加请求间隔防止被封
-
+        logging.info(f"共有{len(all_data)}条数据")
         return all_data
 
 
 class IssueCollector(BaseDataStatCollect):
+
+    def __init__(self, community: str, dws_name: str):
+        super().__init__(community, dws_name)
+        self._validator = validator.IssueValidator()
 
     @property
     def source_name(self) -> str:
@@ -117,8 +130,16 @@ class IssueCollector(BaseDataStatCollect):
     def _get_filters(self, start_time: datetime) -> List[Dict]:
         return [
             {"column": "is_issue", "operator": "=", "value": "1"},
-            {"column": "created_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")},
+            {"column": "updated_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")},
+            {"column": "private", "operator": "=", "value": 'false'},
+            {"column": "is_hide", "operator": "is", "value": 'null'},
+            {"column": "is_removed", "operator": "is", "value": 'null'}
+            # {"column": "created_at", "operator": "<", "value": datetime(2025,6,6).strftime("%Y-%m-%d %H:%M:%S")},
+            # {"column": "state", "operator": "=", "value": "open"}
         ]
+
+    def _is_valid(self, url) -> bool:
+        return self._validator.validate(url)
 
 
 class MailCollect(BaseDataStatCollect):
@@ -144,9 +165,10 @@ def get_forum_collector(community: str) -> BaseCollector:
 class CANNForumCollector(BaseCollector):
     SECTION_IDS = ['0106101385921175004', '0163125572293226003']
 
-    def __init(self):
+    def __init__(self):
         super().__init__()
         self._session.headers.update({'Referer': 'https://www.hiascend.com'})
+        self._validator = validator.CANNForumValidator()
 
     @property
     def source_name(self) -> str:
@@ -157,19 +179,19 @@ class CANNForumCollector(BaseCollector):
         for section_id in self.SECTION_IDS:
             first_page_response = self._fetch_page(section_id, 1)
             if not first_page_response:
-                print(f"获取第一页数据失败")
+                logging.error(f"获取第一页数据失败")
                 continue
-
+            logging.info(self._session.headers)
             first_page_data = first_page_response.json().get('data', {})
             total_count = first_page_data.get('totalCount', 0)
             total_pages = (total_count + 99) // 100
-
             all_data.extend(self._process_page(first_page_data, start_date))
 
             for page in range(2, total_pages + 1):
                 if page_data := self._fetch_page(section_id, page):
                     all_data.extend(self._process_page(page_data.json().get('data', {}), start_date))
-                time.sleep(1)  # 防止请求过于频繁被封禁
+                time.sleep(0.5)  # 防止请求过于频繁被封禁
+        logging.info(f"共有 {len(all_data)} 个主题")
         return all_data
 
     def _fetch_page(self, section_id: str, page: int) -> Optional[requests.Response]:
@@ -185,11 +207,16 @@ class CANNForumCollector(BaseCollector):
         )
 
     def _process_page(self, page_data: dict, start_date: datetime) -> List[Dict]:
+        # return [self._parse_topic(t) for t in page_data.get('resultList', [])
+        #         if self._is_valid_time(t['createTime'], start_date)]
         return [self._parse_topic(t) for t in page_data.get('resultList', [])
-                if self._is_valid_time(t['createTime'], start_date)]
+                if self._is_valid_time(t['lastPostTime'], start_date)]
 
     def _is_valid_time(self, create_time: str, start_date: datetime) -> bool:
-        return datetime.strptime(create_time, "%Y%m%d%H%M%S") > start_date
+        return start_date <= datetime.strptime(create_time, "%Y%m%d%H%M%S")
+
+    def _is_closed(self, topic: dict) -> bool:
+        return topic.get('solved', '') == 1
 
     def _parse_topic(self, topic: dict) -> Dict:
         topicId = topic['topicId']
@@ -199,17 +226,23 @@ class CANNForumCollector(BaseCollector):
             'url': f'https://www.hiascend.com/forum/thread-{topicId}-1-1.html',
             'body': self._get_topic_content(topicId),
             'created_at': datetime.strptime(topic['createTime'], "%Y%m%d%H%M%S").strftime('%Y-%m-%d %H:%M:%S'),
+            'updated_at': datetime.strptime(topic['lastPostTime'], "%Y%m%d%H%M%S").strftime('%Y-%m-%d %H:%M:%S'),
             'type': 'forum',
+            'state': 'closed' if self._is_closed(topic) else 'open',
         }
 
     def _get_topic_content(self, topic_id: str) -> str:
         response = self._request('GET', settings.cann_forum_topic_detail_api, params={'topicId': topic_id})
         return response.json().get('data', {}).get('result', {}).get('content', '') if response else ''
 
+    def _is_valid(self, url: str) -> bool:
+        return self._validator.validate(url)
+
 
 class OpenUBMCForumCollector(BaseCollector):
     def __init__(self):
         super().__init__()
+        self._validator = validator.OpenUBMCForumValidator()
 
     @property
     def source_name(self) -> str:
@@ -223,6 +256,7 @@ class OpenUBMCForumCollector(BaseCollector):
             if len(data.get('topics', [])) < 30:
                 break
             page += 1
+        logging.info(f"共有 {len(all_topics)} 个主题")
         return all_topics
 
     def _fetch_page(self, page: int) -> Optional[dict]:
@@ -241,22 +275,28 @@ class OpenUBMCForumCollector(BaseCollector):
         return topic.get('category_id') == 40
 
     def _is_valid_time(self, topic: dict, start_date: datetime) -> bool:
-        created_at = datetime.strptime(topic['created_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
-        return start_date <= created_at < datetime(2025, 6, 6)
+        # created_at = datetime.strptime(topic['created_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
+        # return start_date <= created_at
+        last_post_at = datetime.strptime(topic['last_posted_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
+        return start_date <= last_post_at
+
+    def _is_closed(self, topic: dict) -> bool:
+        return topic.get('has_accepted_answer', '') == True
 
     def _parse_topic(self, topic: dict) -> Dict:
         return {
             'id': topic['id'],
             'title': topic['title'],
             'created_at': datetime.strptime(topic['created_at'], '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%Y-%m-%d %H:%M:%S'),
+            'updated_at': datetime.strptime(topic['last_posted_at'], '%Y-%m-%dT%H:%M:%S.%fZ').strftime(
+                '%Y-%m-%d %H:%M:%S'),
             'body': self._get_topic_body(topic['id']),
             'url': self._get_topic_url(topic['id']),
             'type': 'forum',
-            'state': 'closed' if topic['closed'] else 'open'
+            'state': 'closed' if self._is_closed(topic) else 'open'
         }
 
     def _get_topic_body(self, topic_id: int) -> str:
-        print(topic_id)
         response = self._request('GET', settings.openubmc_forum_topic_detail_api.format(topic_id=topic_id))
         if not response:
             return ''
@@ -277,3 +317,6 @@ class OpenUBMCForumCollector(BaseCollector):
             post_url = post_stream["posts"][0].get("post_url", "")
             return f'https://discuss.openubmc.cn/{post_url}'
         return ''
+
+    def _is_valid(self, url: str) -> bool:
+        return self._validator.validate(url)

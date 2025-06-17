@@ -11,6 +11,30 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 
+class Record:
+    def __init__(self, base_data, processed):
+        self.base_data = base_data
+        self.processed = processed
+
+
+class FormattedRecord:
+    def __init__(self, id, title, body, url, created_at, updated_at, topic_closed, history, clean_data, topic_summary,
+                 source_type, source_id, source_closed):
+        self.id = id
+        self.title = title
+        self.body = body
+        self.url = url
+        self.created_at = created_at
+        self.updated_at = updated_at
+        self.topic_closed = topic_closed
+        self.history = history
+        self.clean_data = clean_data
+        self.topic_summary = topic_summary
+        self.source_type = source_type
+        self.source_id = source_id
+        self.source_closed = source_closed
+
+
 class BaseCleaner(ABC):
     def __init__(self, collector):
         self.client = OpenAI(
@@ -25,7 +49,7 @@ class BaseCleaner(ABC):
     def _get_system_prompt(self):
         pass
 
-    @retry(stop_max_attempt_number=3, wait_fixed=2000)
+    @retry(stop_max_attempt_number=3, wait_fixed=1000)
     def _llm_process(self, content):
         try:
             response = self.client.chat.completions.create(
@@ -46,11 +70,10 @@ class BaseCleaner(ABC):
 
     def process(self, start_date):
         data_before_clean = self.collector.collect(start_date)
-        print(len(data_before_clean))
         for raw_data in tqdm(data_before_clean, desc="Processing data"):
             try:
                 record = self._build_record(raw_data)
-                yield self._format_for_db(record)
+                yield record
             except Exception as e:
                 logger.error(f"处理失败: {raw_data.get('id', '未知ID')} - {str(e)}")
 
@@ -59,42 +82,54 @@ class BaseCleaner(ABC):
             raw_data['id'] = raw_data['uuid'].split('-')[-1]
         if not all(k in raw_data for k in ('id', 'title', 'body')):
             raise ValueError("缺失必要字段")
+        # if re.search(r'从入门到精通|学习|指导|笔记|分享|训练营', raw_data['title']):
+        #     raise ValueError("标题包含无效关键词")
         created_at = raw_data.get('created_at', datetime.now())
         if isinstance(created_at, datetime):
             created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
+        updated_at = raw_data.get('updated_at', datetime.now())
+        if isinstance(updated_at, datetime):
+            updated_at = updated_at.strftime('%Y-%m-%d %H:%M:%S')
         llm_content = self._llm_process(f"标题：{raw_data['title']}\n内容：{raw_data['body']}")
         url = raw_data.get('html_url', '') if self.source_type == "issue" else raw_data.get('url', '')
-        return {
-            'base_data': {
-                'id': raw_data['id'],
-                'title': raw_data['title'],
-                'body': raw_data['body'],
-                'url': url,
-                'created_at': created_at,
-                'topic_closed': raw_data.get('closed', False),
-                'history': raw_data.get('history', '[]')
-            },
-            'processed': {
-                'clean_data': self._basic_clean(llm_content),
-                'topic_summary': '',
-                'source_closed': raw_data.get('state', '') == 'closed',
-            }
-        }
-
-    def _format_for_db(self, record):
-        return {
-            **record['base_data'],
-            'clean_data': record['processed']['clean_data'],
-            'topic_summary': record['processed']['topic_summary'],
-            'source_type': self.source_type,
-            'source_id': record['base_data']['id'],
-            'source_closed': record['processed']['source_closed'],
-        }
+        return FormattedRecord(
+            id=raw_data['id'],
+            title=raw_data['title'],
+            body=raw_data['body'],
+            url=url,
+            created_at=created_at,
+            updated_at=updated_at,
+            topic_closed=raw_data.get('closed', False),
+            history=raw_data.get('history', '[]'),
+            clean_data=self._basic_clean(llm_content),
+            topic_summary='',
+            source_type=self.source_type,
+            source_id=raw_data['id'],
+            source_closed=raw_data.get('state', '') == 'closed'
+        )
 
     @property
     @abstractmethod
     def source_type(self):
         pass
+
+
+def get_issue_cleaner(community, collector):
+    if community == "cann":
+        return CANNIssueCleaner(collector)
+    elif community == "openubmc":
+        return OpenUBMCIssueCleaner(collector)
+    else:
+        raise ValueError("未知社区")
+
+
+def get_forum_cleaner(community, collector):
+    if community == "cann":
+        return CANNForumCleaner(collector)
+    elif community == "openubmc":
+        return OpenUBMCForumCleaner(collector)
+    else:
+        raise ValueError("未知社区")
 
 
 class CANNForumCleaner(BaseCleaner):

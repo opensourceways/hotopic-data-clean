@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from app.data_manager.manager import DataManager
-from fastapi import APIRouter, HTTPException, status, Body
+from fastapi import APIRouter, HTTPException, status, Body, Query
 import logging
 
 router = APIRouter()
@@ -10,7 +10,10 @@ data_manager = DataManager()
 
 
 @router.get("/data")
-def get_data(page: int = 1, page_size: int = 10):
+def get_data(
+        page: int = Query(1, ge=1, description="分页页码"),
+        page_size: int = Query(100, ge=1, le=500, description="每页数量")
+):
     try:
         # 获取分页数据和总数
         result = data_manager.fetch_paginated_from_pg(page=page, page_size=page_size)
@@ -38,7 +41,7 @@ def get_data(page: int = 1, page_size: int = 10):
 
 @router.put("/data")
 def update_data(
-        data: list = Body(..., max_items=1000),
+        data: list = Body(..., embed=True, media_type="application/json"),  # 明确指定媒体类型和嵌入格式
         user: str = "admin"
 ):
     try:

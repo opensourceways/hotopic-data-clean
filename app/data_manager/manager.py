@@ -5,7 +5,7 @@ from config.settings import settings
 
 
 class DataManager:
-    VALID_FIELDS = {'title', 'body', 'topic_closed', 'topic_summary'}
+    VALID_FIELDS = {'id', 'url', 'topic_closed', 'topic_summary'}
 
     def __init__(self):
         # 数据库配置（请根据实际情况修改）
@@ -28,7 +28,7 @@ class DataManager:
             with psycopg2.connect(**self.DB_CONFIG) as conn:
                 with conn.cursor() as cursor:
                     cursor.execute(
-                        f"SELECT * FROM {self.table_name} ORDER BY id LIMIT %s OFFSET %s;",
+                        f"SELECT * FROM {self.table_name} WHERE topic_closed = FALSE AND is_deleted = FALSE ORDER BY id LIMIT %s OFFSET %s;",
                         (page_size, offset)
                     )
                     columns = [desc[0] for desc in cursor.description]
@@ -41,21 +41,10 @@ class DataManager:
         try:
             with psycopg2.connect(**self.DB_CONFIG) as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(f"SELECT COUNT(*) FROM {self.table_name};")
+                    cursor.execute(f"SELECT COUNT(*) FROM {self.table_name} WHERE topic_closed = FALSE AND is_deleted = FALSE;")
                     return cursor.fetchone()[0]
         except Exception as e:
             self.logger.error(f"总数查询失败: {str(e)}")
-            raise
-
-    def fetch_from_pg(self) -> List[Dict[str, Any]]:
-        try:
-            with psycopg2.connect(**self.DB_CONFIG) as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(f"SELECT * FROM {self.table_name};")
-                    columns = [desc[0] for desc in cursor.description]
-                    return [dict(zip(columns, row)) for row in cursor.fetchall()]
-        except Exception as e:
-            self.logger.error(f"数据库查询失败: {str(e)}")
             raise
 
     def validate_update_data(self, data: List[Dict]) -> bool:

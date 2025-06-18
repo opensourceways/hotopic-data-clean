@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine, inspect, Column, Integer, String, Text, Boolean, DateTime, JSON, UniqueConstraint
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import func
@@ -49,10 +50,14 @@ class Discussion(Base):
 
 def check_and_create_tables():
     inspector = inspect(engine)
-    existing_tables = inspector.get_table_names()
-    required_tables = Base.metadata.tables.keys()
+    try:
+        existing_tables = inspector.get_table_names()
+    except OperationalError as e:
+        logging.error(f"获取表名失败，可能是连接问题: {e}")
+        return
 
+    required_tables = Base.metadata.tables.keys()
     missing_tables = [tbl for tbl in required_tables if tbl not in existing_tables]
     if missing_tables:
         Base.metadata.create_all(bind=engine)
-        print(f"已自动创建缺失的数据表: {', '.join(missing_tables)}")
+        logging.info(f"已自动创建缺失的数据表: {', '.join(missing_tables)}")

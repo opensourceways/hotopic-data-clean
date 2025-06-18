@@ -6,6 +6,7 @@ from openai import OpenAI
 from datetime import datetime
 from config.settings import settings
 from tqdm import tqdm
+from app.db import base
 
 
 logger = logging.getLogger(__name__)
@@ -18,9 +19,8 @@ class Record:
 
 
 class FormattedRecord:
-    def __init__(self, id, title, body, url, created_at, updated_at, topic_closed, history, clean_data, topic_summary,
+    def __init__(self, title, body, url, created_at, updated_at, topic_closed, history, clean_data, topic_summary,
                  source_type, source_id, source_closed):
-        self.id = id
         self.title = title
         self.body = body
         self.url = url
@@ -77,26 +77,38 @@ class BaseCleaner(ABC):
             except Exception as e:
                 logger.error(f"处理失败: {raw_data.get('id', '未知ID')} - {str(e)}")
 
+    def _is_exist(self, source_id: str) -> bool:
+        with base.SessionLocal() as session:
+            existing_record = session.query(base.Discussion).filter(base.Discussion.source_id == source_id).first()
+            if not existing_record:
+                return False
+            if not existing_record.clean_data:
+                return False
+            return True
+
+    @abstractmethod
+    def _is_valid(self, title, body):
+        return True
+
     def _build_record(self, raw_data):
-        if 'uuid' in raw_data:
-            raw_data['id'] = raw_data['uuid'].split('-')[-1]
         if not all(k in raw_data for k in ('id', 'title', 'body')):
             raise ValueError("缺失必要字段")
-        # if re.search(r'从入门到精通|学习|指导|笔记|分享|训练营', raw_data['title']):
-        #     raise ValueError("标题包含无效关键词")
+        if not self._is_valid(raw_data['title'], raw_data['body']):
+            raise ValueError(f"本数据无效{raw_data['id']} - {raw_data['title']}")
         created_at = raw_data.get('created_at', datetime.now())
         if isinstance(created_at, datetime):
             created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
-        updated_at = raw_data.get('updated_at', datetime.now())
+        updated_at = raw_data.get('updated_at', None)
         if isinstance(updated_at, datetime):
             updated_at = updated_at.strftime('%Y-%m-%d %H:%M:%S')
-        llm_content = self._llm_process(f"标题：{raw_data['title']}\n内容：{raw_data['body']}")
-        url = raw_data.get('html_url', '') if self.source_type == "issue" else raw_data.get('url', '')
+        if not self._is_exist(str(raw_data['id'])):
+            llm_content = self._llm_process(f"标题：{raw_data['title']}\n内容：{raw_data['body']}")
+        else:
+            llm_content = ''
         return FormattedRecord(
-            id=raw_data['id'],
             title=raw_data['title'],
             body=raw_data['body'],
-            url=url,
+            url=raw_data.get('url', ''),
             created_at=created_at,
             updated_at=updated_at,
             topic_closed=raw_data.get('closed', False),
@@ -119,6 +131,14 @@ def get_issue_cleaner(community, collector):
         return CANNIssueCleaner(collector)
     elif community == "openubmc":
         return OpenUBMCIssueCleaner(collector)
+    elif community == 'opengauss':
+        return OpenGaussIssueCleaner(collector)
+    else:
+        raise ValueError("未知社区")
+
+def get_mail_cleaner(community, collector):
+    if community == "opengauss":
+        return OpenGaussMailCleaner(collector)
     else:
         raise ValueError("未知社区")
 
@@ -140,6 +160,11 @@ class CANNForumCleaner(BaseCleaner):
     def _get_system_prompt(self):
         return settings.cann_forum_prompt
 
+    def _is_valid(self, title, body):
+        if re.search(r'从入门到精通|学习|指导|笔记|分享|训练营', title):
+            return False
+        return True
+
 
 class CANNIssueCleaner(BaseCleaner):
     @property
@@ -149,8 +174,14 @@ class CANNIssueCleaner(BaseCleaner):
     def _get_system_prompt(self):
         return settings.cann_issue_prompt
 
+    def _is_valid(self, title, body):
+        return True
+
 
 class OpenUBMCForumCleaner(BaseCleaner):
+    def _is_valid(self, title, body):
+        return True
+
     @property
     def source_type(self):
         return "forum"
@@ -166,3 +197,36 @@ class OpenUBMCIssueCleaner(BaseCleaner):
 
     def _get_system_prompt(self):
         return settings.openubmc_issue_prompt
+
+    def _is_valid(self, title, body):
+        return True
+
+
+class OpenGaussIssueCleaner(BaseCleaner):
+    @property
+    def source_type(self):
+        return "issue"
+
+    def _get_system_prompt(self):
+        return settings.opengauss_issue_prompt
+
+    def _is_valid(self, title, body):
+        if re.search(r'用户数据迁移授权协议|个人信息迁移同意书|normally open', title):
+            return False
+        return True
+
+
+class OpenGaussMailCleaner(BaseCleaner):
+    @property
+    def source_type(self):
+        return "mail"
+
+    def _get_system_prompt(self):
+        return settings.opengauss_mail_prompt
+
+    def _is_valid(self, title, body):
+        if re.search(r'例会|公示关闭|公告|纪要|非问题|公式关闭|升级通知|会议|转测试', title):
+            return False
+        if re.search( r'邀请您参加|会议主题', body):
+            return False
+        return True

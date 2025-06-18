@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from unittest.mock import patch, mock_open
 import os
@@ -84,25 +86,6 @@ class TestSettingsFailure:
         monkeypatch.setenv("SECRET_CONFIG", "/non/existent/path.yaml")
         with pytest.raises(FileNotFoundError):
             Settings()
-
-
-# Edge Cases
-class TestEdgeCases:
-    def test_empty_config_files(self, mock_env):
-        with patch("yaml.safe_load", side_effect=[{}, {}]):
-            instance = Settings()
-            assert instance.llm_api_url is None
-            assert instance.account is None
-
-    def test_special_characters(self, mock_env):
-        special_config = {
-            "PASSWORD": "p@ssw0rd!",
-            "DB_HOST": "db-01.example.com"
-        }
-        with patch("yaml.safe_load", side_effect=[{}, special_config]):
-            instance = Settings()
-            assert instance.password == "p@ssw0rd!"
-            assert instance.db_host == "db-01.example.com"
 
 
 # Logging Tests

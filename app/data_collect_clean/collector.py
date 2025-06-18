@@ -64,6 +64,13 @@ class OneIDAPIMixin:
 
 
 class BaseDataStatCollect(BaseCollector, OneIDAPIMixin):
+    def _is_valid(self, url: str) -> bool:
+        pass
+
+    @property
+    def source_name(self) -> str:
+        pass
+
     def __init__(self, community: str, dws_name: str):
         super().__init__()
         self.community = community
@@ -74,6 +81,12 @@ class BaseDataStatCollect(BaseCollector, OneIDAPIMixin):
 
     def _get_filters(self, start_time: datetime) -> List[Dict]:
         return []
+
+    def _get_dim(self) -> List[str]:
+        return []
+
+    def _get_valid_page_data(self, page_data):
+        return [d for d in page_data if self._is_valid(d['html_url'])]
 
     def collect(self, start_time: datetime) -> List[Dict]:
         token = self._login()
@@ -90,7 +103,7 @@ class BaseDataStatCollect(BaseCollector, OneIDAPIMixin):
                 params={"page": page, "page_size": 100},
                 json={
                     "community": self.community,
-                    "dim": [],
+                    "dim": self._get_dim(),
                     "name": self.dws_name,
                     "page": page,
                     "page_size": 100,
@@ -107,10 +120,7 @@ class BaseDataStatCollect(BaseCollector, OneIDAPIMixin):
             page_data = response_data.get('data', [])
             if not page_data:
                 break
-
-            valid_page_data = [d for d in page_data if self._is_valid(d['html_url'])]
-
-            all_data.extend(valid_page_data)
+            all_data.extend(self._get_valid_page_data(page_data))
             page += 1
             time.sleep(0.5)  # 添加请求间隔防止被封
         logging.info(f"共有{len(all_data)}条数据")
@@ -138,11 +148,35 @@ class IssueCollector(BaseDataStatCollect):
             # {"column": "state", "operator": "=", "value": "open"}
         ]
 
+    def _get_dim(self) -> List[str]:
+        return ["uuid", "html_url", "title", "body", "created_at", "updated_at", "state"]
+
+    def collect(self, start_time: datetime) -> List[Dict]:
+        raw_data = super().collect(start_time)
+        processed_data = []
+        for item in raw_data:
+            processed_data.append({
+                "id": item.get("uuid", "").split('-')[-1],
+                "url": item.get("html_url", ""),
+                "source_id": item.get("email_id", ""),
+                "title": item.get("title", ""),
+                "created_at": item.get("created_at", ""),
+                "updated_at": item.get("updated_at", ""),
+                "body": item.get("body", ""),
+                "state": item.get("state", "")
+            })
+        return processed_data
+
+
     def _is_valid(self, url) -> bool:
         return self._validator.validate(url)
 
 
 class MailCollect(BaseDataStatCollect):
+    def __init__(self, community: str, dws_name: str):
+        super().__init__(community, dws_name)
+        self._validator = validator.MailValidator()
+
     @property
     def source_name(self) -> str:
         return "mail"
@@ -151,6 +185,28 @@ class MailCollect(BaseDataStatCollect):
         return [
             {"column": "created_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")}
         ]
+
+    def _get_dim(self) -> List[str]:
+        return ["uuid", "email_id", "subject", "created_at", "content"]
+
+    def _get_valid_page_data(self, page_data):
+        return [d for d in page_data if self._is_valid(d['uuid'])]
+
+    def collect(self, start_time: datetime) -> List[Dict]:
+        raw_data = super().collect(start_time)
+        processed_data = []
+        for item in raw_data:
+            processed_data.append({
+                "url": item.get("uuid", ""),
+                "id": item.get("email_id", ""),
+                "title": item.get("subject", ""),
+                "created_at": item.get("created_at", ""),
+                "body": item.get("content", "")
+            })
+        return processed_data
+
+    def _is_valid(self, uuid) -> bool:
+        return self._validator.validate(uuid)
 
 
 def get_forum_collector(community: str) -> BaseCollector:

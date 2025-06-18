@@ -45,6 +45,8 @@ def GetForumValidator(community: str):
         return OpenUBMCForumValidator()
     elif community == "cann":
         return CANNForumValidator()
+    elif community == "opengauss":
+        return None
     else:
         raise ValueError(f"不支持的社区: {community}")
 
@@ -83,4 +85,4 @@ class CANNForumValidator(BaseValidator):
 
 class MailValidator(BaseValidator):
     def validate(self, email: str) -> bool:
-        return '@' in email  # 简单示例验证
+        return True

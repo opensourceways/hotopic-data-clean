@@ -1,3 +1,4 @@
+import logging
 import os
 import yaml
 
@@ -13,12 +14,16 @@ class Settings:
             self.cann_issue_prompt: str = config.get("CANN_ISSUE_PROMPT")
             self.openubmc_forum_prompt: str = config.get("OPENUBMC_FORUM_PROMPT")
             self.openubmc_issue_prompt: str = config.get("OPENUBMC_ISSUE_PROMPT")
+            self.opengauss_mail_prompt: str = config.get("OPENGAUSS_MAIL_PROMPT")
+            self.opengauss_issue_prompt: str = config.get("OPENGAUSS_ISSUE_PROMPT")
 
         secret_config_path = os.getenv("SECRET_CONFIG")
         if not secret_config_path:
             raise ValueError("SECRET_CONFIG environment variable is not set.")
+        logging.info("secret_config_path: %s", secret_config_path)
         with open(secret_config_path, 'r', encoding="utf-8") as config_file:
             config = yaml.safe_load(config_file)
+            logging.info(f"config: {config}, type : {type(config)}")
             self.env = config.get("APP_ENV")
             self.account: str = config.get("ACCOUNT")
             self.password: str = config.get("PASSWORD")
@@ -32,10 +37,12 @@ class Settings:
             self.llm_api_key: str = config.get("LLM_API_KEY")
             self.community: str = config.get("COMMUNITY")
             self.dws_name: str = config.get("DWS_NAME")
+            self.mail_dws_name: str = config.get("MAIL_DWS_NAME")
             self.db_user: str = config.get("DB_USER")
             self.db_password: str = config.get("DB_PASSWORD")
             self.db_host: str = config.get("DB_HOST")
             self.db_port: str = config.get("DB_PORT")
             self.db_name: str = config.get("DB_NAME")
+
 
 settings = Settings()

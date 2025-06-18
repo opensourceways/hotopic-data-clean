@@ -1,6 +1,5 @@
 import json
 import logging
-import traceback
 from datetime import datetime, timedelta
 from fastapi import FastAPI
 from config.settings import settings
@@ -57,7 +56,7 @@ def auto_process():
     clean_invalid_urls()
 
     try:
-        start_time = calculate_last_friday()
+        start_time = calculate_start_time()
         raw_data = collect_data(start_time)
         store_processed_data(raw_data)
     except Exception as e:
@@ -109,7 +108,7 @@ def clean_invalid_urls():
             session.close()
 
 
-def calculate_last_friday() -> datetime:
+def calculate_start_time() -> datetime:
     today = datetime.now()
     days_since_friday = (today.weekday() - 4) % 7  # 4代表周五的weekday索引
     last_friday = today - timedelta(days=days_since_friday)
@@ -119,19 +118,35 @@ def calculate_last_friday() -> datetime:
 
 
 def collect_data(start_time: datetime) -> list:
-    issue_collector = collector.IssueCollector(settings.community, settings.dws_name)
-    forum_collector = collector.get_forum_collector(settings.community)
+    """
+    根据 settings.community 采集对应社区的数据。
+    openubmc 采集 forum 和 issue，
+    cann 采集 forum 和 mail，
+    opengauss 采集 issue。
+    """
+    data = []
+    community_map = {
+        "openubmc": [("forum", collector.get_forum_collector, clean.get_forum_cleaner),
+                     ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
+        "cann": [("forum", collector.get_forum_collector, clean.get_forum_cleaner),
+                 ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
+        "opengauss": [("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
+                      ("mail", lambda c: collector.MailCollect(c, settings.dws_name), clean.get_mail_cleaner)],
+    }
 
-    issue_cleaner = clean.get_issue_cleaner(settings.community, issue_collector)
-    forum_cleaner = clean.get_forum_cleaner(settings.community, forum_collector)
+    collectors = community_map.get(settings.community)
+    if not collectors:
+        logging.warning(f"未知的 community 类型: {settings.community}")
+        return data
 
-    cleaned_issue_data = issue_cleaner.process(start_time)
-    cleaned_forum_data = forum_cleaner.process(start_time)
+    for source_type, collector_func, cleaner_func in collectors:
+        logging.info(f"开始处理{source_type}数据")
+        col = collector_func(settings.community)
+        cleaner = cleaner_func(settings.community, col)
+        cleaned_data = cleaner.process(start_time)
+        data.extend([r.__dict__ for r in cleaned_data])
 
-    return [
-        *[r.__dict__ for r in cleaned_issue_data],
-        *[r.__dict__ for r in cleaned_forum_data]
-    ]
+    return data
 
 
 def store_processed_data(raw_data: list):
@@ -178,7 +193,7 @@ def build_upsert_statement(record: dict):
         history=record['history'],
         source_closed=record['source_closed'],
     ).on_conflict_do_update(
-        index_elements=['source_id'],
+        index_elements=['source_id', 'source_type'],
         set_={
             # 'history': text(
             #     "history || jsonb_build_array(jsonb_build_object('title', EXCLUDED.title, 'body', EXCLUDED.body, 'time', NOW()::timestamp))"
@@ -186,7 +201,6 @@ def build_upsert_statement(record: dict):
             'title': record['title'],
             'body': record['body'],
             'url': record['url'],
-            'clean_data': record['clean_data'],
             'source_closed': record['source_closed'],
             'updated_at': record['updated_at'],
         }

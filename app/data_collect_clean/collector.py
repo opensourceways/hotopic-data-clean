@@ -141,11 +141,11 @@ class IssueCollector(BaseDataStatCollect):
         return [
             {"column": "is_issue", "operator": "=", "value": "1"},
             {"column": "updated_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")},
+            # {"column": "created_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")},
+            # {"column": "state", "operator": "=", "value": "open"},
             {"column": "private", "operator": "=", "value": 'false'},
             {"column": "is_hide", "operator": "is", "value": 'null'},
             {"column": "is_removed", "operator": "is", "value": 'null'}
-            # {"column": "created_at", "operator": "<", "value": datetime(2025,6,6).strftime("%Y-%m-%d %H:%M:%S")},
-            # {"column": "state", "operator": "=", "value": "open"}
         ]
 
     def _get_dim(self) -> List[str]:

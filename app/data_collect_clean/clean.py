@@ -8,7 +8,6 @@ from config.settings import settings
 from tqdm import tqdm
 from app.db import base
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -136,6 +135,7 @@ def get_issue_cleaner(community, collector):
     else:
         raise ValueError("未知社区")
 
+
 def get_mail_cleaner(community, collector):
     if community == "opengauss":
         return OpenGaussMailCleaner(collector)
@@ -225,8 +225,8 @@ class OpenGaussMailCleaner(BaseCleaner):
         return settings.opengauss_mail_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r'例会|公示关闭|公告|纪要|非问题|公式关闭|升级通知|会议|转测试', title):
+        if re.search(r'例会|公示|公告|纪要|非问题|公式关闭|升级通知|会议|转测试', title):
             return False
-        if re.search( r'邀请您参加|会议主题', body):
+        if re.search(r'邀请您参加|会议主题', body):
             return False
         return True

@@ -1,6 +1,9 @@
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
+
+from apscheduler.executors.pool import ProcessPoolExecutor
 from fastapi import FastAPI
 from config.settings import settings
 from app.data_collect_clean import collector, clean, validator
@@ -29,7 +32,14 @@ app = FastAPI(
     version="1.0.0"
 )
 app.include_router(api.router, prefix="/api/v1", tags=["webhooks"])
-scheduler = BackgroundScheduler()
+scheduler = BackgroundScheduler(
+    executors={
+        'default': ProcessPoolExecutor(3)
+    },
+    job_defaults={
+        'max_instances': 3  # 控制最大并发进程数
+    }
+)
 
 
 @app.get("/health", tags=["监控"])
@@ -46,8 +56,13 @@ def scheduled_task():
 
 @app.post("/manual-run")
 async def manual_trigger():
-    auto_process()
+    await run_in_process(auto_process)
     return {"status": "manual run completed"}
+
+
+async def run_in_process(func):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, func)
 
 
 def auto_process():
@@ -130,8 +145,10 @@ def collect_data(start_time: datetime) -> list:
                      ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
         "cann": [("forum", collector.get_forum_collector, clean.get_forum_cleaner),
                  ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
-        "opengauss": [("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
-                      ("mail", lambda c: collector.MailCollect(c, settings.dws_name), clean.get_mail_cleaner)],
+        "opengauss": [
+            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
+            ("mail", lambda c: collector.MailCollect(c, settings.mail_dws_name), clean.get_mail_cleaner)
+        ],
     }
 
     collectors = community_map.get(settings.community)

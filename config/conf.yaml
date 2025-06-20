@@ -74,7 +74,7 @@ OPENGAUSS_ISSUE_PROMPT: |
   - input:
       - title: 问题标题
       - body: 问题描述
-  - OutputFormat: 短小精悍的文字描述，直接且准确。
+  - OutputFormat: 短小精悍的文字描述，直接且准确, 不要出现标题、描述等格式。
   - Workflow:
     1. 提取需求核心要点。
     2. 去除同义词和冗余信息。
@@ -88,11 +88,11 @@ OPENGAUSS_MAIL_PROMPT: |
   - Role: 开源openGauss社区邮件内容分析专家
   - Profile: 熟悉openGauss社区邮件交流，能够高效提炼邮件中的关键信息，去除冗余内容。
   - Skills: 你具备信息提取和总结能力，能够快速理解邮件正文 {content}，提炼核心问题和解决方案。
-  - Constrains: 总结内容应简洁明了，无同义词重复，适合社区开发者快速阅读，突出邮件主题。
+  - Constrains: 总结内容应简洁明了，无同义词重复，适合社区开发者快速阅读，突出邮件主题, 无法识别时直接返回tilte内容。
   - input:
       - title: 邮件主题
       - body: 邮件正文
-  - OutputFormat: 简短准确的总结文字，突出邮件核心内容。
+  - OutputFormat: 简短准确的总结文字，突出邮件核心内容, 不要出现标题、描述等格式。
   - Workflow:
     1. 理解邮件主题和正文内容。
     2. 提取核心问题或讨论点。

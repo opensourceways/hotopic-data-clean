@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 
-from apscheduler.executors.pool import ProcessPoolExecutor
+from apscheduler.executors.pool import ProcessPoolExecutor, ThreadPoolExecutor
 from fastapi import FastAPI
 from config.settings import settings
 from app.data_collect_clean import collector, clean, validator
@@ -15,13 +15,41 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from contextlib import asynccontextmanager
 
+scheduler = BackgroundScheduler(
+    timezone="UTC",
+    executors={
+        'default': ThreadPoolExecutor(4),
+        'processpool': ProcessPoolExecutor(3)
+    },
+    job_defaults={
+        'max_instances': 1,
+        'misfire_grace_time': 120
+    }
+)
+
+trigger = CronTrigger(
+    hour='*/3',
+    timezone="UTC",
+    jitter=30  # 添加随机抖动，避免定点执行冲突
+)
+
+
+def scheduled_task():
+    try:
+        auto_process()
+    except Exception as e:
+        logging.error(f"Scheduled task failed: {str(e)}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 应用启动时
     scheduler.start()
+    scheduler.add_job(
+        scheduled_task,
+        trigger=trigger,
+        executor='default',
+    )
     yield
-    # 应用关闭时
     scheduler.shutdown()
 
 
@@ -32,14 +60,6 @@ app = FastAPI(
     version="1.0.0"
 )
 app.include_router(api.router, prefix="/api/v1", tags=["webhooks"])
-scheduler = BackgroundScheduler(
-    executors={
-        'default': ProcessPoolExecutor(3)
-    },
-    job_defaults={
-        'max_instances': 3  # 控制最大并发进程数
-    }
-)
 
 
 @app.get("/health", tags=["监控"])
@@ -47,11 +67,6 @@ async def health_check():
     return {
         "status": "ok",
         "environment": settings.env}
-
-
-@scheduler.scheduled_job(CronTrigger(hour='*/3'))  # 每3小时执行一次
-def scheduled_task():
-    auto_process()
 
 
 @app.post("/manual-run")
@@ -81,6 +96,7 @@ def auto_process():
 def initialize_processing_environment():
     """初始化日志和数据库"""
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+
     init_db.init_database()
     base.check_and_create_tables()
 

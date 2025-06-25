@@ -187,7 +187,7 @@ class MailCollect(BaseDataStatCollect):
         ]
 
     def _get_dim(self) -> List[str]:
-        return ["uuid", "email_id", "subject", "created_at", "content"]
+        return ["uuid", "email_id", "subject", "created_at", "content", "message_id_hash", "list_name"]
 
     def _get_valid_page_data(self, page_data):
         return [d for d in page_data if self._is_valid(d['uuid'])]
@@ -196,8 +196,10 @@ class MailCollect(BaseDataStatCollect):
         raw_data = super().collect(start_time)
         processed_data = []
         for item in raw_data:
+            list_name = item.get("list_name", "")
+            message_id_hash = item.get("message_id_hash", "")
             processed_data.append({
-                "url": item.get("uuid", ""),
+                "url": f"https://mailweb.{settings.community}.org/archives/list/{list_name}/thread/{message_id_hash}",
                 "id": item.get("email_id", ""),
                 "title": item.get("subject", ""),
                 "created_at": item.get("created_at", ""),
@@ -253,7 +255,7 @@ class CANNForumCollector(BaseCollector):
     def _fetch_page(self, section_id: str, page: int) -> Optional[requests.Response]:
         return self._request(
             'GET',
-            settings.cann_forum_api,
+            settings.forum_api,
             params={
                 'sectionId': section_id,
                 'filterCondition': '1',
@@ -288,7 +290,7 @@ class CANNForumCollector(BaseCollector):
         }
 
     def _get_topic_content(self, topic_id: str) -> str:
-        response = self._request('GET', settings.cann_forum_topic_detail_api, params={'topicId': topic_id})
+        response = self._request('GET', settings.forum_topic_detail_api, params={'topicId': topic_id})
         return response.json().get('data', {}).get('result', {}).get('content', '') if response else ''
 
     def _is_valid(self, url: str) -> bool:
@@ -318,7 +320,7 @@ class OpenUBMCForumCollector(BaseCollector):
     def _fetch_page(self, page: int) -> Optional[dict]:
         response = self._request(
             'GET',
-            settings.openubmc_forum_api,
+            settings.forum_api,
             params={'page': page, 'no_definitions': True}
         )
         return response.json().get('topic_list', {}) if response else None
@@ -353,7 +355,7 @@ class OpenUBMCForumCollector(BaseCollector):
         }
 
     def _get_topic_body(self, topic_id: int) -> str:
-        response = self._request('GET', settings.openubmc_forum_topic_detail_api.format(topic_id=topic_id))
+        response = self._request('GET', settings.forum_topic_detail_api.format(topic_id=topic_id))
         if not response:
             return ''
 
@@ -364,14 +366,14 @@ class OpenUBMCForumCollector(BaseCollector):
         return ''
 
     def _get_topic_url(self, topic_id: int) -> str:
-        response = self._request('GET', settings.openubmc_forum_topic_detail_api.format(topic_id=topic_id))
+        response = self._request('GET', settings.forum_topic_detail_api.format(topic_id=topic_id))
         if not response:
             return ''
 
         post_data = response.json()
         if post_stream := post_data.get('post_stream'):
             post_url = post_stream["posts"][0].get("post_url", "")
-            return f'https://discuss.openubmc.cn/{post_url}'
+            return f'https://discuss.openubmc.cn{post_url}'
         return ''
 
     def _is_valid(self, url: str) -> bool:

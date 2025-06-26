@@ -44,12 +44,11 @@ def scheduled_task():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.start()
-    auto_process()
-    # scheduler.add_job(
-    #     scheduled_task,
-    #     trigger=trigger,
-    #     executor='default',
-    # )
+    scheduler.add_job(
+        scheduled_task,
+        trigger=trigger,
+        executor='default',
+    )
     yield
     scheduler.shutdown()
 
@@ -141,13 +140,12 @@ def clean_invalid_urls():
 
 
 def calculate_start_time() -> datetime:
-    # today = datetime.now()
-    # days_since_friday = (today.weekday() - 4) % 7  # 4代表周五的weekday索引
-    # last_friday = today - timedelta(days=days_since_friday)
-    # if days_since_friday == 0:
-    #     last_friday -= timedelta(days=7)
-    # return last_friday.replace(hour=0, minute=0, second=0, microsecond=0)
-    return datetime(2025, 1, 1)
+    today = datetime.now()
+    days_since_friday = (today.weekday() - 4) % 7  # 4代表周五的weekday索引
+    last_friday = today - timedelta(days=days_since_friday)
+    if days_since_friday == 0:
+        last_friday -= timedelta(days=7)
+    return last_friday.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def collect_data(start_time: datetime) -> list:
@@ -169,7 +167,7 @@ def collect_data(start_time: datetime) -> list:
         ],
         "mindspore": [
             ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
-            #("forum", collector.get_forum_collector, clean.get_forum_cleaner)
+            ("forum", collector.get_forum_collector, clean.get_forum_cleaner)
         ],
     }
 
@@ -179,7 +177,7 @@ def collect_data(start_time: datetime) -> list:
         return data
 
     for source_type, collector_func, cleaner_func in collectors:
-        logging.error(f"开始处理{source_type}数据")
+        logging.debug(f"开始处理{source_type}数据")
         col = collector_func(settings.community)
         cleaner = cleaner_func(settings.community, col)
         cleaned_data = cleaner.process(start_time)

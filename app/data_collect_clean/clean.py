@@ -132,6 +132,8 @@ def get_issue_cleaner(community, collector):
         return OpenUBMCIssueCleaner(collector)
     elif community == 'opengauss':
         return OpenGaussIssueCleaner(collector)
+    elif community == 'mindspore':
+        return MindSporeIssueCleaner(collector)
     else:
         raise ValueError("未知社区")
 
@@ -148,6 +150,8 @@ def get_forum_cleaner(community, collector):
         return CANNForumCleaner(collector)
     elif community == "openubmc":
         return OpenUBMCForumCleaner(collector)
+    elif community == "mindspore":
+        return MindSporeForumCleaner(collector)
     else:
         raise ValueError("未知社区")
 
@@ -228,5 +232,33 @@ class OpenGaussMailCleaner(BaseCleaner):
         if re.search(r'例会|公示|公告|纪要|非问题|公式关闭|升级通知|会议|转测试', title):
             return False
         if re.search(r'邀请您参加|会议主题', body):
+            return False
+        return True
+
+
+class MindSporeForumCleaner(BaseCleaner):
+    @property
+    def source_type(self):
+        return "forum"
+
+    def _get_system_prompt(self):
+        return settings.mindspore_forum_prompt
+
+    def _is_valid(self, title, body):
+        if re.search(r'指南|干货小卖部|开发者说|课程|体验|0day同步！|扩散模型', title):
+            return False
+        return True
+
+
+class MindSporeIssueCleaner(BaseCleaner):
+    @property
+    def source_type(self):
+        return "issue"
+
+    def _get_system_prompt(self):
+        return settings.mindspore_issue_prompt
+
+    def _is_valid(self, title, body):
+        if re.search(r'开源实习|测试任务|任务', title):
             return False
         return True

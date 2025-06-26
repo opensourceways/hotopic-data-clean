@@ -47,6 +47,8 @@ def GetForumValidator(community: str):
         return CANNForumValidator()
     elif community == "opengauss":
         return None
+    elif community == "mindspore":
+        return MindSporeForumValidator()
     else:
         raise ValueError(f"不支持的社区: {community}")
 
@@ -55,6 +57,10 @@ class OpenUBMCForumValidator(BaseValidator):
     def validate(self, post_url: str) -> bool:
         response = self._common_request(post_url)
         return response and response.status_code == 200
+
+
+class MindSporeForumValidator(OpenUBMCForumValidator):
+    pass
 
 
 class CANNForumValidator(BaseValidator):

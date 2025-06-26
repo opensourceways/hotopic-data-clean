@@ -15,7 +15,10 @@ class BaseCollector(ABC):
         self._session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
         })
-        self._validator = None
+        self._validator = self._get_validator()
+
+    def _get_validator(self):
+        pass
 
     def _request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
         try:
@@ -64,11 +67,11 @@ class OneIDAPIMixin:
 
 
 class BaseDataStatCollect(BaseCollector, OneIDAPIMixin):
-    def _is_valid(self, url: str) -> bool:
-        pass
-
     @property
     def source_name(self) -> str:
+        pass
+
+    def _is_valid(self, url: str) -> bool:
         pass
 
     def __init__(self, community: str, dws_name: str):
@@ -115,7 +118,6 @@ class BaseDataStatCollect(BaseCollector, OneIDAPIMixin):
             )
             if not response:
                 break
-
             response_data = response.json()
             page_data = response_data.get('data', [])
             if not page_data:
@@ -131,7 +133,9 @@ class IssueCollector(BaseDataStatCollect):
 
     def __init__(self, community: str, dws_name: str):
         super().__init__(community, dws_name)
-        self._validator = validator.IssueValidator()
+
+    def _get_validator(self):
+        return validator.IssueValidator()
 
     @property
     def source_name(self) -> str:
@@ -144,8 +148,6 @@ class IssueCollector(BaseDataStatCollect):
             # {"column": "created_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")},
             # {"column": "state", "operator": "=", "value": "open"},
             {"column": "private", "operator": "=", "value": 'false'},
-            {"column": "is_hide", "operator": "is", "value": 'null'},
-            {"column": "is_removed", "operator": "is", "value": 'null'}
         ]
 
     def _get_dim(self) -> List[str]:
@@ -175,7 +177,9 @@ class IssueCollector(BaseDataStatCollect):
 class MailCollect(BaseDataStatCollect):
     def __init__(self, community: str, dws_name: str):
         super().__init__(community, dws_name)
-        self._validator = validator.MailValidator()
+
+    def _get_validator(self):
+        return validator.MailValidator()
 
     @property
     def source_name(self) -> str:
@@ -216,6 +220,8 @@ def get_forum_collector(community: str) -> BaseCollector:
         return CANNForumCollector()
     elif community == 'openubmc':
         return OpenUBMCForumCollector()
+    elif community == 'mindspore':
+        return MindSporeForumCollector()
     else:
         raise ValueError(f"Unsupported community: {community}")
 
@@ -226,7 +232,9 @@ class CANNForumCollector(BaseCollector):
     def __init__(self):
         super().__init__()
         self._session.headers.update({'Referer': 'https://www.hiascend.com'})
-        self._validator = validator.CANNForumValidator()
+
+    def _get_validator(self):
+        return validator.CANNForumValidator()
 
     @property
     def source_name(self) -> str:
@@ -300,7 +308,9 @@ class CANNForumCollector(BaseCollector):
 class OpenUBMCForumCollector(BaseCollector):
     def __init__(self):
         super().__init__()
-        self._validator = validator.OpenUBMCForumValidator()
+
+    def _get_validator(self):
+        return validator.OpenUBMCForumValidator()
 
     @property
     def source_name(self) -> str:
@@ -308,7 +318,7 @@ class OpenUBMCForumCollector(BaseCollector):
 
     def collect(self, start_date) -> List[Dict]:
         all_topics = []
-        page = 1
+        page = 0
         while data := self._fetch_page(page):
             all_topics.extend(self._process_page(data, start_date))
             if len(data.get('topics', [])) < 30:
@@ -339,7 +349,7 @@ class OpenUBMCForumCollector(BaseCollector):
         return start_date <= last_post_at
 
     def _is_closed(self, topic: dict) -> bool:
-        return topic.get('has_accepted_answer', '') == True
+        return topic.get('has_accepted_answer', False)
 
     def _parse_topic(self, topic: dict) -> Dict:
         return {
@@ -373,8 +383,40 @@ class OpenUBMCForumCollector(BaseCollector):
         post_data = response.json()
         if post_stream := post_data.get('post_stream'):
             post_url = post_stream["posts"][0].get("post_url", "")
-            return f'https://discuss.openubmc.cn{post_url}'
+            return self._get_forum_url_format().format(post_url=post_url)
         return ''
+
+    def _get_forum_url_format(self):
+        return 'https://discuss.openubmc.cn{post_url}'
 
     def _is_valid(self, url: str) -> bool:
         return self._validator.validate(url)
+
+
+class MindSporeForumCollector(OpenUBMCForumCollector):
+    def __init__(self):
+        super().__init__()
+
+    def _get_validator(self):
+        return validator.MindSporeForumValidator()
+
+    def _process_page(self, page_data: dict, start_date: datetime) -> List[Dict]:
+        return [self._parse_topic(t) for t in page_data.get('topics', [])
+                if not self._is_excluded_category(t) and self._is_valid_time(t, start_date) and not self._is_closed(t)]
+
+    def _fetch_page(self, page: int) -> Optional[dict]:
+        response = self._request(
+            'GET',
+            settings.forum_api,
+            params={'page': page, 'no_definitions': True}
+        )
+        return response.json().get('topic_list', {}) if response else None
+
+    def _is_valid_time(self, topic: dict, start_date: datetime) -> bool:
+        # created_at = datetime.strptime(topic['created_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
+        # return start_date <= created_at
+        last_post_at = datetime.strptime(topic['last_posted_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
+        return start_date <= last_post_at
+
+    def _get_forum_url_format(self):
+        return 'https://discuss.mindspore.cn{post_url}'

@@ -72,7 +72,7 @@ class CANNForumValidator(BaseValidator):
 
             # 调用论坛详情接口
             response = self._session.get(
-                settings.cann_forum_topic_detail_api,
+                settings.forum_topic_detail_api,
                 params={"topicId": topic_id},
                 timeout=30
             )

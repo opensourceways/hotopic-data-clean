@@ -174,7 +174,7 @@ class IssueCollector(BaseDataStatCollect):
         return self._validator.validate(url)
 
 
-class MailCollect(BaseDataStatCollect):
+class MailCollector(BaseDataStatCollect):
     def __init__(self, community: str, dws_name: str):
         super().__init__(community, dws_name)
 
@@ -191,19 +191,27 @@ class MailCollect(BaseDataStatCollect):
         ]
 
     def _get_dim(self) -> List[str]:
-        return ["uuid", "email_id", "subject", "created_at", "content", "message_id_hash", "list_name"]
+        return ["uuid", "email_id", "subject", "created_at", "content", "message_id_hash", "list_name", "parent_id"]
 
     def _get_valid_page_data(self, page_data):
         return [d for d in page_data if self._is_valid(d['uuid'])]
 
     def collect(self, start_time: datetime) -> List[Dict]:
         raw_data = super().collect(start_time)
+        email_id_map = {item["email_id"]: item for item in raw_data}
+
         processed_data = []
         for item in raw_data:
+            parent_id = item.get("parent_id")
             list_name = item.get("list_name", "")
             message_id_hash = item.get("message_id_hash", "")
+
+            if parent_id and (parent := email_id_map.get(parent_id)):
+                list_name = parent.get("list_name", "")
+                message_id_hash = parent.get("message_id_hash", "")
+            url = f"https://mailweb.{settings.community}.org/archives/list/{list_name}/thread/{message_id_hash}"
             processed_data.append({
-                "url": f"https://mailweb.{settings.community}.org/archives/list/{list_name}/thread/{message_id_hash}",
+                "url": url,
                 "id": item.get("email_id", ""),
                 "title": item.get("subject", ""),
                 "created_at": item.get("created_at", ""),
@@ -402,7 +410,7 @@ class MindSporeForumCollector(OpenUBMCForumCollector):
 
     def _process_page(self, page_data: dict, start_date: datetime) -> List[Dict]:
         return [self._parse_topic(t) for t in page_data.get('topics', [])
-                if not self._is_excluded_category(t) and self._is_valid_time(t, start_date) and not self._is_closed(t)]
+                if not self._is_excluded_category(t) and self._is_valid_time(t, start_date)]
 
     def _fetch_page(self, page: int) -> Optional[dict]:
         response = self._request(

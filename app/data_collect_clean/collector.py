@@ -402,29 +402,5 @@ class OpenUBMCForumCollector(BaseCollector):
 
 
 class MindSporeForumCollector(OpenUBMCForumCollector):
-    def __init__(self):
-        super().__init__()
-
     def _get_validator(self):
         return validator.MindSporeForumValidator()
-
-    def _process_page(self, page_data: dict, start_date: datetime) -> List[Dict]:
-        return [self._parse_topic(t) for t in page_data.get('topics', [])
-                if not self._is_excluded_category(t) and self._is_valid_time(t, start_date)]
-
-    def _fetch_page(self, page: int) -> Optional[dict]:
-        response = self._request(
-            'GET',
-            settings.forum_api,
-            params={'page': page, 'no_definitions': True}
-        )
-        return response.json().get('topic_list', {}) if response else None
-
-    def _is_valid_time(self, topic: dict, start_date: datetime) -> bool:
-        # created_at = datetime.strptime(topic['created_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
-        # return start_date <= created_at
-        last_post_at = datetime.strptime(topic['last_posted_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
-        return start_date <= last_post_at
-
-    def _get_forum_url_format(self):
-        return 'https://discuss.mindspore.cn{post_url}'

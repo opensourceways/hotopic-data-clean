@@ -59,10 +59,6 @@ class OpenUBMCForumValidator(BaseValidator):
         return response and response.status_code == 200
 
 
-class MindSporeForumValidator(OpenUBMCForumValidator):
-    pass
-
-
 class CANNForumValidator(BaseValidator):
     def validate(self, post_url: str) -> bool:
         from config.settings import settings
@@ -87,6 +83,14 @@ class CANNForumValidator(BaseValidator):
         except Exception as e:
             logging.error(f"CANN论坛验证异常: {str(e)}")
             return False
+
+
+class MindSporeForumValidator(OpenUBMCForumValidator):
+    def validate(self, post_url: str) -> bool:
+        if "discuss.mindspore.cn" in post_url:
+            return super().validate(post_url)
+        hi_ascend_validator = CANNForumValidator()
+        return hi_ascend_validator.validate(post_url)
 
 
 class MailValidator(BaseValidator):

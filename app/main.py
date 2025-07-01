@@ -157,13 +157,16 @@ def collect_data(start_time: datetime) -> list:
     """
     data = []
     community_map = {
-        "openubmc": [("forum", collector.get_forum_collector, clean.get_forum_cleaner),
-                     ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
-        "cann": [("forum", collector.get_forum_collector, clean.get_forum_cleaner),
-                 ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
+        "openubmc": [
+            ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
+            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)
+        ],
+        "cann": [
+            ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
+            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
         "opengauss": [
             ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
-            ("mail", lambda c: collector.MailCollect(c, settings.mail_dws_name), clean.get_mail_cleaner)
+            ("mail", lambda c: collector.MailCollector(c, settings.mail_dws_name), clean.get_mail_cleaner)
         ],
         "mindspore": [
             ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),

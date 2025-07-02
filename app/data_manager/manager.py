@@ -41,7 +41,11 @@ class DataManager:
                         (page_size, offset),
                     )
                     columns = [desc[0] for desc in cursor.description]
-                    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+                    results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                    for item in results:
+                        if "is_deleted" in item:
+                            item["source_deleted"] = item.pop("is_deleted")
+                    return results
         except Exception as e:
             self.logger.error(f"分页查询失败: {str(e)}")
             raise

@@ -134,6 +134,8 @@ def get_issue_cleaner(community, collector):
         return OpenGaussIssueCleaner(collector)
     elif community == 'mindspore':
         return MindSporeIssueCleaner(collector)
+    elif community == 'openeuler':
+        return OpenEulerIssueCleaner(collector)
     else:
         raise ValueError("未知社区")
 
@@ -141,6 +143,8 @@ def get_issue_cleaner(community, collector):
 def get_mail_cleaner(community, collector):
     if community == "opengauss":
         return OpenGaussMailCleaner(collector)
+    elif community == "openeuler":
+        return OpenEulerMailCleaner(collector)
     else:
         raise ValueError("未知社区")
 
@@ -152,6 +156,8 @@ def get_forum_cleaner(community, collector):
         return OpenUBMCForumCleaner(collector)
     elif community == "mindspore":
         return MindSporeForumCleaner(collector)
+    elif community == "openeuler":
+        return OpenEulerForumCleaner(collector)
     else:
         raise ValueError("未知社区")
 
@@ -236,6 +242,22 @@ class OpenGaussMailCleaner(BaseCleaner):
         return True
 
 
+class OpenEulerMailCleaner(BaseCleaner):
+    @property
+    def source_type(self):
+        return "mail"
+
+    def _get_system_prompt(self):
+        return settings.openeuler_mail_prompt
+
+    def _is_valid(self, title, body):
+        if re.search(r'例会|公示|公告|纪要|非问题|公式关闭|升级|会议|转测试|订阅|年报|月报|需求持续收集中|[PATCH]|进度报告|议题申报|提醒|告警|申请|说明|指南|议程|OLK|感谢信', title):
+            return False
+        if re.search(r'邀请您参加|会议主题', body):
+            return False
+        return True
+
+
 class MindSporeForumCleaner(BaseCleaner):
     @property
     def source_type(self):
@@ -250,6 +272,22 @@ class MindSporeForumCleaner(BaseCleaner):
         return True
 
 
+class OpenEulerForumCleaner(BaseCleaner):
+    @property
+    def source_type(self):
+        return "forum"
+
+    def _get_system_prompt(self):
+        return settings.openeuler_forum_prompt
+
+    def _is_valid(self, title, body):
+        if re.search(r'练习|综合实践|test|指南|攻略|探究|问题收集|公告', title):
+            return False
+        if re.search(r'实验介绍', body):
+            return False
+        return True
+
+
 class MindSporeIssueCleaner(BaseCleaner):
     @property
     def source_type(self):
@@ -260,5 +298,19 @@ class MindSporeIssueCleaner(BaseCleaner):
 
     def _is_valid(self, title, body):
         if re.search(r'开源实习|测试任务|任务', title):
+            return False
+        return True
+
+
+class OpenEulerIssueCleaner(BaseCleaner):
+    @property
+    def source_type(self):
+        return "issue"
+
+    def _get_system_prompt(self):
+        return settings.openeuler_issue_prompt
+
+    def _is_valid(self, title, body):
+        if re.search(r'需求征集|English translation|补丁|CVE-|【EulerMaker】|【OEPKG】', title):
             return False
         return True

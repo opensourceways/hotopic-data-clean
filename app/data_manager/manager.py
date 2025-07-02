@@ -5,16 +5,16 @@ from config.settings import settings
 
 
 class DataManager:
-    VALID_FIELDS = {'id', 'url', 'topic_closed', 'topic_summary'}
+    VALID_FIELDS = {"id", "url", "topic_closed", "topic_summary"}
 
     def __init__(self):
         # 数据库配置（请根据实际情况修改）
         self.DB_CONFIG = {
-            'dbname': settings.db_name,
-            'user': settings.db_user,
-            'password': settings.db_password,
-            'host': settings.db_host,
-            'port': settings.db_port
+            "dbname": settings.db_name,
+            "user": settings.db_user,
+            "password": settings.db_password,
+            "host": settings.db_host,
+            "port": settings.db_port,
         }
         self.logger = logging.getLogger(__name__)
         self.table_name = "discussion"
@@ -28,8 +28,17 @@ class DataManager:
             with psycopg2.connect(**self.DB_CONFIG) as conn:
                 with conn.cursor() as cursor:
                     cursor.execute(
-                        f"SELECT * FROM {self.table_name} WHERE topic_closed = FALSE AND is_deleted = FALSE ORDER BY id LIMIT %s OFFSET %s;",
-                        (page_size, offset)
+                        f"""
+                        SELECT * FROM {self.table_name} 
+                        WHERE topic_closed = FALSE 
+                        AND (
+                            (topic_summary IS NOT NULL AND topic_summary <> '')
+                            OR ((topic_summary IS NULL OR topic_summary = '') AND is_deleted = FALSE)
+                        )
+                        ORDER BY id 
+                        LIMIT %s OFFSET %s;
+                        """,
+                        (page_size, offset),
                     )
                     columns = [desc[0] for desc in cursor.description]
                     return [dict(zip(columns, row)) for row in cursor.fetchall()]
@@ -41,7 +50,9 @@ class DataManager:
         try:
             with psycopg2.connect(**self.DB_CONFIG) as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(f"SELECT COUNT(*) FROM {self.table_name} WHERE topic_closed = FALSE AND is_deleted = FALSE;")
+                    cursor.execute(
+                        f"SELECT COUNT(*) FROM {self.table_name} WHERE topic_closed = FALSE AND is_deleted = FALSE;"
+                    )
                     return cursor.fetchone()[0]
         except Exception as e:
             self.logger.error(f"总数查询失败: {str(e)}")
@@ -49,9 +60,9 @@ class DataManager:
 
     def validate_update_data(self, data: List[Dict]) -> bool:
         for item in data:
-            if 'id' not in item:
+            if "id" not in item:
                 return False
-            if not all(key in self.VALID_FIELDS for key in item if key != 'id'):
+            if not all(key in self.VALID_FIELDS for key in item if key != "id"):
                 return False
         return True
 
@@ -65,11 +76,13 @@ class DataManager:
             cursor = conn.cursor()
 
             # 过滤非法字段
-            filtered_data = [{
-                'id': item['id'],
-                **{k: v for k, v in item.items()
-                   if k in self.VALID_FIELDS}
-            } for item in data_list]
+            filtered_data = [
+                {
+                    "id": item["id"],
+                    **{k: v for k, v in item.items() if k in self.VALID_FIELDS},
+                }
+                for item in data_list
+            ]
 
             # 构建参数化查询语句
             set_clause = ", ".join([f"{field} = %s" for field in self.VALID_FIELDS])
@@ -77,7 +90,7 @@ class DataManager:
 
             # 生成参数列表
             params_list = [
-                [item.get(field) for field in self.VALID_FIELDS] + [item['id']]
+                [item.get(field) for field in self.VALID_FIELDS] + [item["id"]]
                 for item in filtered_data
             ]
 

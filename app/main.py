@@ -17,20 +17,12 @@ from contextlib import asynccontextmanager
 
 scheduler = BackgroundScheduler(
     timezone="UTC",
-    executors={
-        'default': ThreadPoolExecutor(4),
-        'processpool': ProcessPoolExecutor(3)
-    },
-    job_defaults={
-        'max_instances': 1,
-        'misfire_grace_time': 120
-    }
+    executors={"default": ThreadPoolExecutor(4), "processpool": ProcessPoolExecutor(3)},
+    job_defaults={"max_instances": 1, "misfire_grace_time": 120},
 )
 
 trigger = CronTrigger(
-    hour='*/3',
-    timezone="UTC",
-    jitter=30  # 添加随机抖动，避免定点执行冲突
+    hour="*/3", timezone="UTC", jitter=30  # 添加随机抖动，避免定点执行冲突
 )
 
 
@@ -47,7 +39,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         scheduled_task,
         trigger=trigger,
-        executor='default',
+        executor="default",
     )
     yield
     scheduler.shutdown()
@@ -57,16 +49,14 @@ app = FastAPI(
     lifespan=lifespan,
     title="数据清洗服务",
     description="提供数据清洗处理API",
-    version="1.0.0"
+    version="1.0.0",
 )
 app.include_router(api.router, prefix="/api/v1", tags=["webhooks"])
 
 
 @app.get("/health", tags=["监控"])
 async def health_check():
-    return {
-        "status": "ok",
-        "environment": settings.env}
+    return {"status": "ok", "environment": settings.env}
 
 
 @app.post("/manual-run")
@@ -95,7 +85,7 @@ def auto_process():
 
 def initialize_processing_environment():
     """初始化日志和数据库"""
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
     init_db.init_database()
     base.check_and_create_tables()
@@ -112,7 +102,7 @@ def clean_invalid_urls():
             validators = {
                 "issue": validator.IssueValidator(),
                 "forum": validator.GetForumValidator(settings.community),
-                "mail": validator.MailValidator()
+                "mail": validator.MailValidator(),
             }
 
             update_count = 0
@@ -159,23 +149,52 @@ def collect_data(start_time: datetime) -> list:
     community_map = {
         "openubmc": [
             ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
-            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)
+            (
+                "issue",
+                lambda c: collector.IssueCollector(c, settings.dws_name),
+                clean.get_issue_cleaner,
+            ),
         ],
         "cann": [
             ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
-            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
+            (
+                "issue",
+                lambda c: collector.IssueCollector(c, settings.dws_name),
+                clean.get_issue_cleaner,
+            ),
+        ],
         "opengauss": [
-            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
-            ("mail", lambda c: collector.MailCollector(c, settings.mail_dws_name), clean.get_mail_cleaner)
+            (
+                "issue",
+                lambda c: collector.IssueCollector(c, settings.dws_name),
+                clean.get_issue_cleaner,
+            ),
+            (
+                "mail",
+                lambda c: collector.MailCollector(c, settings.mail_dws_name),
+                clean.get_mail_cleaner,
+            ),
         ],
         "mindspore": [
-            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
-            ("forum", collector.get_forum_collector, clean.get_forum_cleaner)
+            (
+                "issue",
+                lambda c: collector.IssueCollector(c, settings.dws_name),
+                clean.get_issue_cleaner,
+            ),
+            ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
         ],
         "openeuler": [
-            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
+            (
+                "issue",
+                lambda c: collector.IssueCollector(c, settings.dws_name),
+                clean.get_issue_cleaner,
+            ),
             ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
-            ("mail", lambda c: collector.MailCollector(c, settings.mail_dws_name), clean.get_mail_cleaner)
+            (
+                "mail",
+                lambda c: collector.MailCollector(c, settings.mail_dws_name),
+                clean.get_mail_cleaner,
+            ),
         ],
     }
 
@@ -200,7 +219,7 @@ def store_processed_data(raw_data: list):
         try:
             BATCH_SIZE = 50
             for i in range(0, len(raw_data), BATCH_SIZE):
-                process_batch(session, raw_data[i:i + BATCH_SIZE], i, BATCH_SIZE)
+                process_batch(session, raw_data[i : i + BATCH_SIZE], i, BATCH_SIZE)
         except Exception as e:
             session.rollback()
             raise e
@@ -209,13 +228,15 @@ def store_processed_data(raw_data: list):
 def process_batch(session, batch: list, index: int, batch_size: int):
     """处理单个数据批次"""
     for record in batch:
-        if isinstance(clean_data := record['clean_data'], str) and clean_data.startswith('"'):
+        if isinstance(
+            clean_data := record["clean_data"], str
+        ) and clean_data.startswith('"'):
             try:
-                record['clean_data'] = json.loads(clean_data)
+                record["clean_data"] = json.loads(clean_data)
             except json.JSONDecodeError:
                 pass
 
-        title, url = record['title'], record['url']
+        title, url = record["title"], record["url"]
         logging.info(f"正在提交记录: {title} - {url}")
         session.execute(build_upsert_statement(record))
 
@@ -224,31 +245,35 @@ def process_batch(session, batch: list, index: int, batch_size: int):
 
 
 def build_upsert_statement(record: dict):
-    return insert(base.Discussion).values(
-        source_id=record['source_id'],
-        source_type=record['source_type'],
-        title=record['title'],
-        body=record['body'],
-        url=record['url'],
-        topic_summary=record['topic_summary'],
-        topic_closed=record['topic_closed'],
-        created_at=record['created_at'],
-        updated_at=record['updated_at'],
-        clean_data=record['clean_data'],
-        history=record['history'],
-        source_closed=record['source_closed'],
-    ).on_conflict_do_update(
-        index_elements=['source_id', 'source_type'],
-        set_={
-            # 'history': text(
-            #     "history || jsonb_build_array(jsonb_build_object('title', EXCLUDED.title, 'body', EXCLUDED.body, 'time', NOW()::timestamp))"
-            # ),
-            'title': record['title'],
-            'body': record['body'],
-            'url': record['url'],
-            'source_closed': record['source_closed'],
-            'updated_at': record['updated_at'],
-        }
+    return (
+        insert(base.Discussion)
+        .values(
+            source_id=record["source_id"],
+            source_type=record["source_type"],
+            title=record["title"],
+            body=record["body"],
+            url=record["url"],
+            topic_summary=record["topic_summary"],
+            topic_closed=record["topic_closed"],
+            created_at=record["created_at"],
+            updated_at=record["updated_at"],
+            clean_data=record["clean_data"],
+            history=record["history"],
+            source_closed=record["source_closed"],
+        )
+        .on_conflict_do_update(
+            index_elements=["source_id", "source_type"],
+            set_={
+                # 'history': text(
+                #     "history || jsonb_build_array(jsonb_build_object('title', EXCLUDED.title, 'body', EXCLUDED.body, 'time', NOW()::timestamp))"
+                # ),
+                "title": record["title"],
+                "body": record["body"],
+                "url": record["url"],
+                "source_closed": record["source_closed"],
+                "updated_at": record["updated_at"],
+            },
+        )
     )
 
 

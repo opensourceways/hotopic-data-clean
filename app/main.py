@@ -1,6 +1,9 @@
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
+
+from apscheduler.executors.pool import ProcessPoolExecutor, ThreadPoolExecutor
 from fastapi import FastAPI
 from config.settings import settings
 from app.data_collect_clean import collector, clean, validator
@@ -12,13 +15,41 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from contextlib import asynccontextmanager
 
+scheduler = BackgroundScheduler(
+    timezone="UTC",
+    executors={
+        'default': ThreadPoolExecutor(4),
+        'processpool': ProcessPoolExecutor(3)
+    },
+    job_defaults={
+        'max_instances': 1,
+        'misfire_grace_time': 120
+    }
+)
+
+trigger = CronTrigger(
+    hour='*/3',
+    timezone="UTC",
+    jitter=30  # 添加随机抖动，避免定点执行冲突
+)
+
+
+def scheduled_task():
+    try:
+        auto_process()
+    except Exception as e:
+        logging.error(f"Scheduled task failed: {str(e)}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 应用启动时
     scheduler.start()
+    scheduler.add_job(
+        scheduled_task,
+        trigger=trigger,
+        executor='default',
+    )
     yield
-    # 应用关闭时
     scheduler.shutdown()
 
 
@@ -29,7 +60,6 @@ app = FastAPI(
     version="1.0.0"
 )
 app.include_router(api.router, prefix="/api/v1", tags=["webhooks"])
-scheduler = BackgroundScheduler()
 
 
 @app.get("/health", tags=["监控"])
@@ -39,15 +69,15 @@ async def health_check():
         "environment": settings.env}
 
 
-@scheduler.scheduled_job(CronTrigger(hour='*/3'))  # 每3小时执行一次
-def scheduled_task():
-    auto_process()
-
-
 @app.post("/manual-run")
 async def manual_trigger():
-    auto_process()
+    await run_in_process(auto_process)
     return {"status": "manual run completed"}
+
+
+async def run_in_process(func):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, func)
 
 
 def auto_process():
@@ -66,6 +96,7 @@ def auto_process():
 def initialize_processing_environment():
     """初始化日志和数据库"""
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+
     init_db.init_database()
     base.check_and_create_tables()
 
@@ -126,12 +157,26 @@ def collect_data(start_time: datetime) -> list:
     """
     data = []
     community_map = {
-        "openubmc": [("forum", collector.get_forum_collector, clean.get_forum_cleaner),
-                     ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
-        "cann": [("forum", collector.get_forum_collector, clean.get_forum_cleaner),
-                 ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
-        "opengauss": [("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
-                      ("mail", lambda c: collector.MailCollect(c, settings.dws_name), clean.get_mail_cleaner)],
+        "openubmc": [
+            ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
+            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)
+        ],
+        "cann": [
+            ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
+            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
+        "opengauss": [
+            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
+            ("mail", lambda c: collector.MailCollector(c, settings.mail_dws_name), clean.get_mail_cleaner)
+        ],
+        "mindspore": [
+            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
+            ("forum", collector.get_forum_collector, clean.get_forum_cleaner)
+        ],
+        "openeuler": [
+            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
+            ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
+            ("mail", lambda c: collector.MailCollector(c, settings.mail_dws_name), clean.get_mail_cleaner)
+        ],
     }
 
     collectors = community_map.get(settings.community)
@@ -140,7 +185,7 @@ def collect_data(start_time: datetime) -> list:
         return data
 
     for source_type, collector_func, cleaner_func in collectors:
-        logging.info(f"开始处理{source_type}数据")
+        logging.debug(f"开始处理{source_type}数据")
         col = collector_func(settings.community)
         cleaner = cleaner_func(settings.community, col)
         cleaned_data = cleaner.process(start_time)

@@ -16,6 +16,8 @@ class Settings:
             self.openubmc_issue_prompt: str = config.get("OPENUBMC_ISSUE_PROMPT")
             self.opengauss_mail_prompt: str = config.get("OPENGAUSS_MAIL_PROMPT")
             self.opengauss_issue_prompt: str = config.get("OPENGAUSS_ISSUE_PROMPT")
+            self.mindspore_forum_prompt: str = config.get("MINDSPORE_FORUM_PROMPT")
+            self.mindspore_issue_prompt: str = config.get("MINDSPORE_ISSUE_PROMPT")
 
         secret_config_path = os.getenv("SECRET_CONFIG")
         if not secret_config_path:
@@ -30,10 +32,8 @@ class Settings:
             self.client_id: str = config.get("CLIENT_ID")
             self.data_api: str = config.get("DATA_API")
             self.one_id_api: str = config.get("ONE_ID_API")
-            self.cann_forum_api: str = config.get("CANN_FORUM_API")
-            self.cann_forum_topic_detail_api: str = config.get("CANN_FORUM_TOPIC_DETAIL_API")
-            self.openubmc_forum_api: str = config.get("OPENUBMC_FORUM_API")
-            self.openubmc_forum_topic_detail_api: str = config.get("OPENUBMC_FORUM_DETAIL_API")
+            self.forum_api: str = config.get("FORUM_API")
+            self.forum_topic_detail_api: str = config.get("FORUM_DETAIL_API")
             self.llm_api_key: str = config.get("LLM_API_KEY")
             self.community: str = config.get("COMMUNITY")
             self.dws_name: str = config.get("DWS_NAME")

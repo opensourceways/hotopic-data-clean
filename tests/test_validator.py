@@ -22,7 +22,7 @@ def mock_session(monkeypatch):
 @pytest.fixture
 def cann_settings():
     with patch("config.settings.settings") as mock_settings:
-        mock_settings.cann_forum_topic_detail_api = "http://mock-api.com/topic"
+        mock_settings.forum_topic_detail_api = "http://mock-api.com/topic"
         yield mock_settings
 
 

@@ -47,6 +47,8 @@ def GetForumValidator(community: str):
         return CANNForumValidator()
     elif community == "opengauss":
         return None
+    elif community == "mindspore":
+        return MindSporeForumValidator()
     else:
         raise ValueError(f"不支持的社区: {community}")
 
@@ -66,7 +68,7 @@ class CANNForumValidator(BaseValidator):
 
             # 调用论坛详情接口
             response = self._session.get(
-                settings.cann_forum_topic_detail_api,
+                settings.forum_topic_detail_api,
                 params={"topicId": topic_id},
                 timeout=30
             )
@@ -81,6 +83,14 @@ class CANNForumValidator(BaseValidator):
         except Exception as e:
             logging.error(f"CANN论坛验证异常: {str(e)}")
             return False
+
+
+class MindSporeForumValidator(OpenUBMCForumValidator):
+    def validate(self, post_url: str) -> bool:
+        if "discuss.mindspore.cn" in post_url:
+            return super().validate(post_url)
+        hi_ascend_validator = CANNForumValidator()
+        return hi_ascend_validator.validate(post_url)
 
 
 class MailValidator(BaseValidator):

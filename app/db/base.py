@@ -29,11 +29,11 @@ class Discussion(Base):
 
     # 添加唯一约束
     __table_args__ = (
-        UniqueConstraint('source_id', name='uq_discussion_source_id'),
+        UniqueConstraint('source_id', 'source_type', name='uq_discussion_source_id'),
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    source_id = Column(Text, nullable=False, unique=True)
+    source_id = Column(Text, nullable=False)
     title = Column(String(255), nullable=False)
     body = Column(Text)
     url = Column(String(512))

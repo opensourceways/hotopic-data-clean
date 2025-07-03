@@ -18,6 +18,9 @@ class Settings:
             self.opengauss_issue_prompt: str = config.get("OPENGAUSS_ISSUE_PROMPT")
             self.mindspore_forum_prompt: str = config.get("MINDSPORE_FORUM_PROMPT")
             self.mindspore_issue_prompt: str = config.get("MINDSPORE_ISSUE_PROMPT")
+            self.openeuler_forum_prompt: str = config.get("OPENEULER_FORUM_PROMPT")
+            self.openeuler_issue_prompt: str = config.get("OPENEULER_ISSUE_PROMPT")
+            self.openeuler_mail_prompt: str = config.get("OPENEULER_MAIL_PROMPT")
 
         secret_config_path = os.getenv("SECRET_CONFIG")
         if not secret_config_path:

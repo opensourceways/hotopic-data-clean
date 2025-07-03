@@ -1,4 +1,5 @@
 import asyncio
+from encodings.punycode import T
 import json
 import logging
 from datetime import datetime, timedelta
@@ -183,19 +184,19 @@ def collect_data(start_time: datetime) -> list:
             ),
             ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
         ],
-        "openeuler": [
-            (
-                "issue",
-                lambda c: collector.IssueCollector(c, settings.dws_name),
-                clean.get_issue_cleaner,
-            ),
-            ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
-            (
-                "mail",
-                lambda c: collector.MailCollector(c, settings.mail_dws_name),
-                clean.get_mail_cleaner,
-            ),
-        ],
+        # "openeuler": [
+        #     (
+        #         "issue",
+        #         lambda c: collector.IssueCollector(c, settings.dws_name),
+        #         clean.get_issue_cleaner,
+        #     ),
+        #     ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
+        #     (
+        #         "mail",
+        #         lambda c: collector.MailCollector(c, settings.mail_dws_name),
+        #         clean.get_mail_cleaner,
+        #     ),
+        # ],
     }
 
     collectors = community_map.get(settings.community)

@@ -8,13 +8,13 @@ from abc import ABC, abstractmethod
 class BaseValidator(ABC):
     def __init__(self):
         self._session = requests.Session()
-        self._session.headers.update({'User-Agent': 'Mozilla/5.0'})
+        self._session.headers.update({"User-Agent": "Mozilla/5.0"})
 
     @abstractmethod
     def validate(self, target: str) -> bool:
         pass
 
-    def _common_request(self, url: str, headers=None) -> requests.Response:
+    def _common_request(self, url: str, headers=None) -> Optional[requests.Response]:
         try:
             return self._session.get(url, headers=headers, timeout=30)
         except requests.exceptions.RequestException:
@@ -22,22 +22,22 @@ class BaseValidator(ABC):
 
 
 class IssueValidator(BaseValidator):
-    def validate(self, url: str) -> bool:
-        if "gitcode.com" in url:
-            parsed = urlparse(url)
-            path_segments = [p for p in parsed.path.split('/') if p]
+    def validate(self, target: str) -> bool:
+        if "gitcode.com" in target:
+            parsed = urlparse(target)
+            path_segments = [p for p in parsed.path.split("/") if p]
             owner, repo = path_segments[:2]
             api_url = (
                 f"https://web-api.gitcode.com/api/v2/projects/{owner}%2F{repo}"
                 f"?repoId={owner}%252F{owner}&statistics=true&view=all"
             )
             response = self._common_request(api_url, {"Referer": "https://gitcode.com"})
-        elif "gitee.com" in url:
-            response = self._common_request(url.split('/issues')[0])
+        elif "gitee.com" in target:
+            response = self._common_request(target.split("/issues")[0])
         else:
             return False
 
-        return response and response.status_code == 200
+        return response is not None and response.status_code == 200
 
 
 def GetForumValidator(community: str):
@@ -54,29 +54,32 @@ def GetForumValidator(community: str):
 
 
 class OpenUBMCForumValidator(BaseValidator):
-    def validate(self, post_url: str) -> bool:
-        response = self._common_request(post_url)
-        return response and response.status_code == 200
+    def validate(self, target: str) -> bool:
+        response = self._common_request(target)
+        return response is not None and response.status_code == 200
 
 
 class CANNForumValidator(BaseValidator):
-    def validate(self, post_url: str) -> bool:
+    def validate(self, target: str) -> bool:
         from config.settings import settings
+
         try:
             # 提取topic_id
-            topic_id = post_url.split('-')[1].split('/')[0]
+            topic_id = target.split("-")[1].split("/")[0]
 
             # 调用论坛详情接口
             response = self._session.get(
                 settings.forum_topic_detail_api,
                 params={"topicId": topic_id},
-                timeout=30
+                timeout=30,
             )
 
             # 解析响应数据
             if response.status_code == 200:
                 resp_data = response.json()
-                if (data := resp_data.get("data")) and data.get("error_code") == "HD.65120026":
+                if (data := resp_data.get("data")) and data.get(
+                    "error_code"
+                ) == "HD.65120026":
                     return False
                 return True
             return False
@@ -86,13 +89,14 @@ class CANNForumValidator(BaseValidator):
 
 
 class MindSporeForumValidator(OpenUBMCForumValidator):
-    def validate(self, post_url: str) -> bool:
-        if "discuss.mindspore.cn" in post_url:
-            return super().validate(post_url)
+    def validate(self, target: str) -> bool:
+        if "discuss.mindspore.cn" in target:
+            return super().validate(target)
         hi_ascend_validator = CANNForumValidator()
-        return hi_ascend_validator.validate(post_url)
+        return hi_ascend_validator.validate(target)
 
 
 class MailValidator(BaseValidator):
-    def validate(self, email: str) -> bool:
-        return True
+    def validate(self, target: str) -> bool:
+        response = self._common_request(target)
+        return response is not None and response.status_code == 200

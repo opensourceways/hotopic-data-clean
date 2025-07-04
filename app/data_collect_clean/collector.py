@@ -9,38 +9,6 @@ from abc import ABC, abstractmethod
 from typing import Callable, List, Dict, Optional
 from app.data_collect_clean import validator
 
-
-def retry_on_429_json(max_retries=5, initial_backoff=1):
-    """
-    装饰器：遇到HTTP 429时自动重试，返回json字典。
-    """
-    def decorator(func: Callable):
-        def wrapper(*args, **kwargs) -> Optional[dict]:
-            backoff = initial_backoff
-            for attempt in range(max_retries):
-                response = func(*args, **kwargs)
-                if response is None:
-                    return None
-                if hasattr(response, "status_code") and response.status_code == 429:
-                    logging.warning(f"429 Too Many Requests, retrying after {backoff}s...")
-                    time.sleep(backoff)
-                    backoff *= 2
-                    continue
-                if response.status_code == 200:
-                    try:
-                        return response.json()
-                    except Exception as e:
-                        logging.error(f"JSON解析失败: {e}")
-                        return None
-                else:
-                    logging.error(f"请求失败，状态码: {response.status_code}")
-                    return None
-            logging.error(f"重试{max_retries}次后仍然429失败")
-            return None
-        return wrapper
-    return decorator
-
-
 class BaseCollector(ABC):
     def __init__(self):
         self._session = requests.Session()
@@ -405,12 +373,22 @@ class OpenUBMCForumCollector(BaseCollector):
         logging.info(f"共有 {len(all_topics)} 个主题")
         return all_topics
 
-    @retry_on_429_json(max_retries=5, initial_backoff=1)
     def _fetch_page(self, page: int) -> Optional[dict]:
-        response = self._request(
-            "GET", settings.forum_api, params={"page": page, "per_page": 100, "no_definitions": True}
-        )
-        return response.json().get("topic_list", {}) if response else None
+        while True:
+            response = self._request(
+                "GET", settings.forum_api, params={"page": page, "per_page": 100, "no_definitions": True}
+            )
+            if not response:
+                return None
+
+            if response.status_code == 429:
+                time.sleep(1)
+                continue
+
+            try:
+                return response.json().get("topic_list", {})
+            except Exception:
+                return None
 
     def _process_page(self, page_data: dict, start_date: datetime) -> List[Dict]:
         return [
@@ -418,7 +396,6 @@ class OpenUBMCForumCollector(BaseCollector):
             for t in page_data.get("topics", [])
             if not self._is_excluded_category(t)
             and self._is_valid_time(t, start_date)
-            and not self._is_closed(t)
         ]
 
     def _is_excluded_category(self, topic: dict) -> bool:
@@ -449,21 +426,25 @@ class OpenUBMCForumCollector(BaseCollector):
             "state": "closed" if self._is_closed(topic) else "open",
         }
 
-    @retry_on_429_json(max_retries=5, initial_backoff=1)
     def _get_topic_body(self, topic_id: int) -> str:
-        response = self._request(
-            "GET", settings.forum_topic_detail_api.format(topic_id=topic_id)
-        )
-        if not response:
-            return ""
-
-        post_data = response.json()
-        if post_stream := post_data.get("post_stream"):
-            first_post = post_stream["posts"][0]
-            return BeautifulSoup(first_post.get("cooked", ""), "html.parser").get_text(
-                separator=" ", strip=True
+       while True:
+            response = self._request(
+                "GET", settings.forum_topic_detail_api.format(topic_id=topic_id)
             )
-        return ""
+            if not response:
+                return ""
+
+            if response.status_code == 429:
+                time.sleep(1)
+                continue
+
+            post_data = response.json()
+            if post_stream := post_data.get("post_stream"):
+                first_post = post_stream["posts"][0]
+                return BeautifulSoup(first_post.get("cooked", ""), "html.parser").get_text(
+                    separator=" ", strip=True
+                )
+            return ""
 
     def _get_topic_url(self, topic_id: int) -> str:
         return self._get_forum_url_format().format(topic_id=topic_id)

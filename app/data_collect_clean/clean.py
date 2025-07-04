@@ -203,6 +203,8 @@ class CANNIssueCleaner(BaseCleaner):
         return settings.cann_issue_prompt
 
     def _is_valid(self, title, body):
+        if re.search(r"从入门到精通|学习|指导|笔记|分享|训练营", title):
+            return False
         return True
 
 

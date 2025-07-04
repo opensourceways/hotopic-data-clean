@@ -57,7 +57,7 @@ class BaseCleaner(ABC):
         self.system_prompt = self._get_system_prompt()
 
     @abstractmethod
-    def _get_system_prompt(self):
+    def _get_system_prompt(self) -> str:
         pass
 
     @retry(stop_max_attempt_number=3, wait_fixed=1000)
@@ -102,7 +102,7 @@ class BaseCleaner(ABC):
             return True
 
     @abstractmethod
-    def _is_valid(self, title, body):
+    def _is_valid(self, title, body) -> bool:
         return True
 
     def _build_record(self, raw_data):
@@ -139,7 +139,7 @@ class BaseCleaner(ABC):
 
     @property
     @abstractmethod
-    def source_type(self):
+    def source_type(self) -> str:
         pass
 
 
@@ -208,6 +208,11 @@ class CANNIssueCleaner(BaseCleaner):
 
 class OpenUBMCForumCleaner(BaseCleaner):
     def _is_valid(self, title, body):
+        if re.search(
+            r"维护通知|QA 运作规则讨论|指南|例会|启航行动|一键创建|模板|变更声明|qqqq|openUBMC各sig组本周|投票|FAQ|活动",
+            title,
+        ):
+            return False
         return True
 
     @property
@@ -227,6 +232,8 @@ class OpenUBMCIssueCleaner(BaseCleaner):
         return settings.openubmc_issue_prompt
 
     def _is_valid(self, title, body):
+        if re.search(r"模板|指南|normally open", title):
+            return False
         return True
 
 

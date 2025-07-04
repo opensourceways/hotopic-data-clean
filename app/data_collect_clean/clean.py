@@ -305,11 +305,11 @@ class OpenEulerForumCleaner(BaseCleaner):
 
     def _is_valid(self, title, body):
         if re.search(
-            r"练习|综合实践|test|指南|攻略|探究|问题收集|公告|用户体验提升|分享|基于anaconda的搭建|【openEuler系列】",
+            r"练习|综合实践|test|指南|攻略|探究|问题收集|公告|用户体验提升|分享|基于anaconda的搭建|网赌|【openEuler系列】|贡献报告|加油|新世界",
             title,
         ):
             return False
-        if re.search(r"实验介绍", body):
+        if re.search(r"实验介绍|已被社区举报", body):
             return False
         return True
 

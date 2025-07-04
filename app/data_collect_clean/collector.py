@@ -23,13 +23,17 @@ class BaseCollector(ABC):
         pass
 
     def _request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
-        try:
-            response = self._session.request(method, url, timeout=30, **kwargs)
-            response.raise_for_status()
-            return response
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Request failed: {e}")
-            return None
+        while True:
+            try:
+                response = self._session.request(method, url, timeout=30, **kwargs)
+                if response.status_code == 429:
+                    time.sleep(1)
+                    continue
+                response.raise_for_status()
+                return response
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Request failed: {e}")
+                return None
 
     @abstractmethod
     def collect(self, start_time: datetime) -> List[Dict]:
@@ -306,8 +310,6 @@ class CANNForumCollector(BaseCollector):
         )
 
     def _process_page(self, page_data: dict, start_date: datetime) -> List[Dict]:
-        # return [self._parse_topic(t) for t in page_data.get('resultList', [])
-        #         if self._is_valid_time(t['createTime'], start_date)]
         return [
             self._parse_topic(t)
             for t in page_data.get("resultList", [])
@@ -374,21 +376,10 @@ class OpenUBMCForumCollector(BaseCollector):
         return all_topics
 
     def _fetch_page(self, page: int) -> Optional[dict]:
-        while True:
-            response = self._request(
-                "GET", settings.forum_api, params={"page": page, "per_page": 100, "no_definitions": True}
-            )
-            if not response:
-                return None
-
-            if response.status_code == 429:
-                time.sleep(1)
-                continue
-
-            try:
-                return response.json().get("topic_list", {})
-            except Exception:
-                return None
+        response = self._request(
+            "GET", settings.forum_api, params={"page": page, "per_page": 100, "no_definitions": True}
+        )
+        return response.json().get("topic_list", {}) if response else None
 
     def _process_page(self, page_data: dict, start_date: datetime) -> List[Dict]:
         return [
@@ -427,24 +418,19 @@ class OpenUBMCForumCollector(BaseCollector):
         }
 
     def _get_topic_body(self, topic_id: int) -> str:
-       while True:
-            response = self._request(
-                "GET", settings.forum_topic_detail_api.format(topic_id=topic_id)
-            )
-            if not response:
-                return ""
-
-            if response.status_code == 429:
-                time.sleep(1)
-                continue
-
-            post_data = response.json()
-            if post_stream := post_data.get("post_stream"):
-                first_post = post_stream["posts"][0]
-                return BeautifulSoup(first_post.get("cooked", ""), "html.parser").get_text(
-                    separator=" ", strip=True
-                )
+        response = self._request(
+            "GET", settings.forum_topic_detail_api.format(topic_id=topic_id)
+        )
+        if not response:
             return ""
+
+        post_data = response.json()
+        if post_stream := post_data.get("post_stream"):
+            first_post = post_stream["posts"][0]
+            return BeautifulSoup(first_post.get("cooked", ""), "html.parser").get_text(
+                separator=" ", strip=True
+            )
+        return ""
 
     def _get_topic_url(self, topic_id: int) -> str:
         return self._get_forum_url_format().format(topic_id=topic_id)

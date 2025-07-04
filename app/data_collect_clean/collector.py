@@ -1,13 +1,11 @@
 import logging
-import re
 import time
-from datetime import datetime, timedelta
-from regex import T
+from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 from config.settings import settings
 from abc import ABC, abstractmethod
-from typing import Callable, List, Dict, Optional
+from typing import List, Dict, Optional
 from app.data_collect_clean import validator
 
 class BaseCollector(ABC):

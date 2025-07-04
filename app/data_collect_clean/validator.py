@@ -28,11 +28,38 @@ class IssueValidator(BaseValidator):
             parsed = urlparse(target)
             path_segments = [p for p in parsed.path.split("/") if p]
             owner, repo = path_segments[:2]
+
             api_url = (
-                f"https://web-api.gitcode.com/api/v2/projects/{owner}%2F{repo}"
-                f"?repoId={owner}%252F{owner}&statistics=true&view=all"
+                f"https://web-api.gitcode.com/api/v2/projects/{owner}%2F{repo}/simple"
             )
             response = self._common_request(api_url, {"Referer": "https://gitcode.com"})
+            if not (response and response.status_code == 200):
+                return False
+            try:
+                data = response.json()
+                if data.get("visibility") == "private":
+                    return False
+            except Exception:
+                return False
+
+            # 从url中提取issue_id
+            issue_id = None
+            for i, segment in enumerate(path_segments):
+                if segment == "issues" and i + 1 < len(path_segments):
+                    issue_id = path_segments[i + 1]
+                    break
+            if not issue_id:
+                return False
+
+            issue_api_url = (
+                f"https://web-api.gitcode.com/issuepr/api/v1/issue/{owner}%2F{repo}/issues/{issue_id}"
+            )
+            issue_response = self._common_request(issue_api_url, {"Referer": "https://gitcode.com"})
+            if not (issue_response and issue_response.status_code == 200):
+                return False
+
+            return True
+
         elif "gitee.com" in target:
             response = self._common_request(target.split("/issues")[0])
         else:

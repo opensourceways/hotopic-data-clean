@@ -38,7 +38,7 @@ def scheduled_task():
 async def lifespan(app: FastAPI):
     scheduler.start()
     initialize_processing_environment()
-    clean_invalid_urls()
+    await clean_invalid_urls()
     scheduler.add_job(
         scheduled_task,
         trigger=trigger,
@@ -91,42 +91,52 @@ def initialize_processing_environment():
     base.check_and_create_tables()
 
 
-def clean_invalid_urls():
+async def clean_invalid_urls(batch_size=100):
+    """
+    异步分批清理无效URL，避免阻塞服务。
+    """
+    loop = asyncio.get_event_loop()
     with base.SessionLocal() as session:
         try:
-            records = session.query(base.Discussion).filter(
-                base.Discussion.is_deleted == False  # 仅处理未删除记录
-            )
-
-            # 初始化验证器字典
+            total_deleted = 0
             validators = {
                 "issue": validator.IssueValidator(),
                 "forum": validator.GetForumValidator(settings.community),
                 "mail": validator.MailValidator(),
             }
 
-            update_count = 0
-            for record in records:
-                validator_for_type = validators.get(record.source_type.lower())
-                if not validator_for_type:
-                    continue
+            query = session.query(base.Discussion).filter(base.Discussion.is_deleted == False)
+            offset = 0
 
-                if not validator_for_type.validate(record.url):
-                    record.is_deleted = True
-                    update_count += 1
-                    logging.debug(f"标记删除URL: {record.url}")
+            while True:
+                records = query.offset(offset).limit(batch_size).all()
+                if not records:
+                    break
 
-            if update_count > 0:
-                session.commit()
-                logging.info(f"已标记 {update_count} 条无效URL记录")
-            else:
+                def process_batch(records):
+                    update_count = 0
+                    for record in records:
+                        validator_for_type = validators.get(record.source_type.lower())
+                        if not validator_for_type:
+                            continue
+                        if not validator_for_type.validate(record.url):
+                            record.is_deleted = True
+                            update_count += 1
+                    return update_count
+
+                update_count = await loop.run_in_executor(None, process_batch, records)
+                if update_count > 0:
+                    session.commit()
+                    total_deleted += update_count
+                    logging.info(f"已标记 {update_count} 条无效URL记录")
+                offset += batch_size
+
+            if total_deleted == 0:
                 logging.info("未找到无效URL记录")
 
         except Exception as e:
             session.rollback()
             logging.error(f"清理失败: {str(e)}")
-        finally:
-            session.close()
 
 
 def calculate_start_time() -> datetime:

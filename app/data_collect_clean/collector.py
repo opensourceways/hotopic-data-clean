@@ -2,6 +2,7 @@ import logging
 import re
 import time
 from datetime import datetime, timedelta
+from regex import T
 import requests
 from bs4 import BeautifulSoup
 from config.settings import settings
@@ -386,7 +387,7 @@ class OpenUBMCForumCollector(BaseCollector):
             self._parse_topic(t)
             for t in page_data.get("topics", [])
             if not self._is_excluded_category(t)
-            and self._is_valid_time(t, start_date)
+            and self._is_valid_time(t, start_date) and self._is_valid_tag(t)
         ]
 
     def _is_excluded_category(self, topic: dict) -> bool:
@@ -432,6 +433,9 @@ class OpenUBMCForumCollector(BaseCollector):
             )
         return ""
 
+    def _is_valid_tag(self, topic: dict) -> bool:
+        return "提问求助" in topic.get("tags", [])
+
     def _get_topic_url(self, topic_id: int) -> str:
         return self._get_forum_url_format().format(topic_id=topic_id)
 
@@ -449,6 +453,9 @@ class MindSporeForumCollector(OpenUBMCForumCollector):
     def _get_forum_url_format(self) -> str:
         return "https://discuss.mindspore.cn/t/topic/{topic_id}"
 
+    def _is_valid_tag(self, topic: dict) -> bool:
+        return True
+
 
 class OpenEulerForumCollector(OpenUBMCForumCollector):
     def _get_validator(self):
@@ -456,3 +463,6 @@ class OpenEulerForumCollector(OpenUBMCForumCollector):
 
     def _get_forum_url_format(self) -> str:
         return "https://forum.openeuler.org/t/topic/{topic_id}"
+    
+    def _is_valid_tag(self, topic: dict) -> bool:
+        return True

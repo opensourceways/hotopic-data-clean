@@ -101,6 +101,7 @@ class CANNForumValidator(BaseValidator):
             response = self._session.get(
                 settings.forum_topic_detail_api,
                 params={"topicId": topic_id},
+                headers={"Referer": "https://www.hiascend.com"},
                 timeout=30,
             )
 

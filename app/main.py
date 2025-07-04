@@ -38,7 +38,6 @@ def scheduled_task():
 async def lifespan(app: FastAPI):
     scheduler.start()
     initialize_processing_environment()
-    await clean_invalid_urls()
     scheduler.add_job(
         scheduled_task,
         trigger=trigger,
@@ -75,6 +74,7 @@ async def run_in_process(func):
 
 def auto_process():
     """全自动执行采集+清洗"""
+    clean_invalid_urls()
     try:
         start_time = calculate_start_time()
         raw_data = collect_data(start_time)
@@ -91,11 +91,10 @@ def initialize_processing_environment():
     base.check_and_create_tables()
 
 
-async def clean_invalid_urls(batch_size=100):
+def clean_invalid_urls(batch_size=100):
     """
-    异步分批清理无效URL，避免阻塞服务。
+    分批清理无效URL，避免阻塞服务。
     """
-    loop = asyncio.get_event_loop()
     with base.SessionLocal() as session:
         try:
             total_deleted = 0
@@ -113,18 +112,15 @@ async def clean_invalid_urls(batch_size=100):
                 if not records:
                     break
 
-                def process_batch(records):
-                    update_count = 0
-                    for record in records:
-                        validator_for_type = validators.get(record.source_type.lower())
-                        if not validator_for_type:
-                            continue
-                        if not validator_for_type.validate(record.url):
-                            record.is_deleted = True
-                            update_count += 1
-                    return update_count
+                update_count = 0
+                for record in records:
+                    validator_for_type = validators.get(record.source_type.lower())
+                    if not validator_for_type:
+                        continue
+                    if not validator_for_type.validate(record.url):
+                        record.is_deleted = True
+                        update_count += 1
 
-                update_count = await loop.run_in_executor(None, process_batch, records)
                 if update_count > 0:
                     session.commit()
                     total_deleted += update_count

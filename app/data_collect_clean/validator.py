@@ -50,6 +50,8 @@ def GetForumValidator(community: str):
         return None
     elif community == "mindspore":
         return MindSporeForumValidator()
+    elif community == "openeuler":
+        return OpenEulerForumValidator()
     else:
         raise ValueError(f"不支持的社区: {community}")
 
@@ -101,3 +103,8 @@ class MailValidator(BaseValidator):
     def validate(self, target: str) -> bool:
         response = self._common_request(target)
         return response is not None and response.status_code == 200
+
+
+class OpenEulerForumValidator(OpenUBMCForumValidator):
+    pass
+    

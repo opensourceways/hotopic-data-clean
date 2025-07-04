@@ -1,12 +1,44 @@
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 from config.settings import settings
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional
+from typing import Callable, List, Dict, Optional
 from app.data_collect_clean import validator
+
+
+def retry_on_429_json(max_retries=5, initial_backoff=1):
+    """
+    装饰器：遇到HTTP 429时自动重试，返回json字典。
+    """
+    def decorator(func: Callable):
+        def wrapper(*args, **kwargs) -> Optional[dict]:
+            backoff = initial_backoff
+            for attempt in range(max_retries):
+                response = func(*args, **kwargs)
+                if response is None:
+                    return None
+                if hasattr(response, "status_code") and response.status_code == 429:
+                    logging.warning(f"429 Too Many Requests, retrying after {backoff}s...")
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                if response.status_code == 200:
+                    try:
+                        return response.json()
+                    except Exception as e:
+                        logging.error(f"JSON解析失败: {e}")
+                        return None
+                else:
+                    logging.error(f"请求失败，状态码: {response.status_code}")
+                    return None
+            logging.error(f"重试{max_retries}次后仍然429失败")
+            return None
+        return wrapper
+    return decorator
 
 
 class BaseCollector(ABC):
@@ -141,8 +173,6 @@ class IssueCollector(BaseDataStatCollect):
                 "operator": ">",
                 "value": start_time.strftime("%Y-%m-%d %H:%M:%S"),
             },
-            # {"column": "created_at", "operator": ">", "value": start_time.strftime("%Y-%m-%d %H:%M:%S")},
-            # {"column": "state", "operator": "=", "value": "open"},
             {"column": "private", "operator": "=", "value": "false"},
         ]
 
@@ -211,11 +241,12 @@ class MailCollector(BaseDataStatCollect):
             "parent_id",
         ]
 
-    def _get_valid_page_data(self, page_data):
-        return [d for d in page_data if self._is_valid(d["uuid"])]
+    def _get_valid_page_data(self, page_data):       
+        return [d for d in page_data]
 
     def collect(self, start_time: datetime) -> List[Dict]:
         raw_data = super().collect(start_time)
+        logging.info(f"共有{len(raw_data)}条数据")
         email_id_map = {item["email_id"]: item for item in raw_data}
 
         processed_data = []
@@ -228,6 +259,8 @@ class MailCollector(BaseDataStatCollect):
                 list_name = parent.get("list_name", "")
                 message_id_hash = parent.get("message_id_hash", "")
             url = f"https://mailweb.{settings.community}.org/archives/list/{list_name}/thread/{message_id_hash}"
+            if not self._is_valid(url):
+                continue
             processed_data.append(
                 {
                     "url": url,
@@ -250,6 +283,8 @@ def get_forum_collector(community: str) -> BaseCollector:
         return OpenUBMCForumCollector()
     elif community == "mindspore":
         return MindSporeForumCollector()
+    elif community == "openeuler":
+        return OpenEulerForumCollector()
     else:
         raise ValueError(f"Unsupported community: {community}")
 
@@ -364,15 +399,16 @@ class OpenUBMCForumCollector(BaseCollector):
         page = 0
         while data := self._fetch_page(page):
             all_topics.extend(self._process_page(data, start_time))
-            if len(data.get("topics", [])) < 30:
+            if len(data.get("topics", [])) < 100:
                 break
             page += 1
         logging.info(f"共有 {len(all_topics)} 个主题")
         return all_topics
 
+    @retry_on_429_json(max_retries=5, initial_backoff=1)
     def _fetch_page(self, page: int) -> Optional[dict]:
         response = self._request(
-            "GET", settings.forum_api, params={"page": page, "no_definitions": True}
+            "GET", settings.forum_api, params={"page": page, "per_page": 100, "no_definitions": True}
         )
         return response.json().get("topic_list", {}) if response else None
 
@@ -380,15 +416,15 @@ class OpenUBMCForumCollector(BaseCollector):
         return [
             self._parse_topic(t)
             for t in page_data.get("topics", [])
-            if not self._is_excluded_category(t) and self._is_valid_time(t, start_date)
+            if not self._is_excluded_category(t)
+            and self._is_valid_time(t, start_date)
+            and not self._is_closed(t)
         ]
 
     def _is_excluded_category(self, topic: dict) -> bool:
         return topic.get("category_id") == 40
 
     def _is_valid_time(self, topic: dict, start_date: datetime) -> bool:
-        # created_at = datetime.strptime(topic['created_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
-        # return start_date <= created_at
         last_post_at = datetime.strptime(
             topic["last_posted_at"], "%Y-%m-%dT%H:%M:%S.%fZ"
         )
@@ -413,6 +449,7 @@ class OpenUBMCForumCollector(BaseCollector):
             "state": "closed" if self._is_closed(topic) else "open",
         }
 
+    @retry_on_429_json(max_retries=5, initial_backoff=1)
     def _get_topic_body(self, topic_id: int) -> str:
         response = self._request(
             "GET", settings.forum_topic_detail_api.format(topic_id=topic_id)
@@ -429,20 +466,10 @@ class OpenUBMCForumCollector(BaseCollector):
         return ""
 
     def _get_topic_url(self, topic_id: int) -> str:
-        response = self._request(
-            "GET", settings.forum_topic_detail_api.format(topic_id=topic_id)
-        )
-        if not response:
-            return ""
+        return self._get_forum_url_format().format(topic_id=topic_id)
 
-        post_data = response.json()
-        if post_stream := post_data.get("post_stream"):
-            post_url = post_stream["posts"][0].get("post_url", "")
-            return self._get_forum_url_format().format(post_url=post_url)
-        return ""
-
-    def _get_forum_url_format(self):
-        return "https://discuss.openubmc.cn{post_url}"
+    def _get_forum_url_format(self) -> str:
+        return "https://discuss.openubmc.cn/t/topic/{topic_id}"
 
     def _is_valid(self, target: str) -> bool:
         return self._validator is not None and self._validator.validate(target)
@@ -451,3 +478,14 @@ class OpenUBMCForumCollector(BaseCollector):
 class MindSporeForumCollector(OpenUBMCForumCollector):
     def _get_validator(self):
         return validator.MindSporeForumValidator()
+
+    def _get_forum_url_format(self) -> str:
+        return "https://discuss.mindspore.cn/t/topic/{topic_id}"
+
+
+class OpenEulerForumCollector(OpenUBMCForumCollector):
+    def _get_validator(self):
+        return validator.OpenEulerForumValidator()
+
+    def _get_forum_url_format(self) -> str:
+        return "https://forum.openeuler.org/t/topic/{topic_id}"

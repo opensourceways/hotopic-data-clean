@@ -1,5 +1,6 @@
 import logging
 import os
+from re import S
 import yaml
 
 
@@ -46,6 +47,7 @@ class Settings:
             self.db_host: str = config.get("DB_HOST")
             self.db_port: str = config.get("DB_PORT")
             self.db_name: str = config.get("DB_NAME")
+            self.fetch_top_n_api: str = config.get("FETCH_TOP_N_API")
 
 
 settings = Settings()

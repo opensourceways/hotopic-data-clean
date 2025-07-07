@@ -299,7 +299,7 @@ class MindSporeForumCleaner(BaseCleaner):
         return settings.mindspore_forum_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r"指南|干货小卖部|开发者说|课程|体验|0day同步！|扩散模型|应用系列|推导|", title):
+        if re.search(r"指南|干货小卖部|开发者说|课程|体验|0day同步！|扩散模型|应用系列|推导", title):
             return False
         return True
 
@@ -332,7 +332,7 @@ class MindSporeIssueCleaner(BaseCleaner):
         return settings.mindspore_issue_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r"开源实习|测试任务|任务", title):
+        if re.search(r"开源实习|测试任务|任务|教程|CVE-", title):
             return False
         return True
 

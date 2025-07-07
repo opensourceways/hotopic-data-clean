@@ -27,6 +27,10 @@ trigger = CronTrigger(
     hour="*/3", timezone="UTC", jitter=30  # 添加随机抖动，避免定点执行冲突
 )
 
+trigger_week = CronTrigger(
+    day_of_week="mon", hour="12", minute="0", timezone="UTC"
+)
+
 
 def scheduled_task():
     try:
@@ -35,6 +39,12 @@ def scheduled_task():
         logging.error(f"Scheduled task failed: {str(e)}")
 
 
+def scheduled_fetch_top_n():
+    try:
+        fetch_top_n()
+    except Exception as e:
+        logging.error(f"Scheduled fetch top n failed: {str(e)}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.start()
@@ -42,6 +52,11 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         scheduled_task,
         trigger=trigger,
+        executor="default",
+    )
+    scheduler.add_job(
+        scheduled_fetch_top_n,
+        trigger=trigger_week,
         executor="default",
     )
     yield

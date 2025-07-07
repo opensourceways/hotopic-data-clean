@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from apscheduler.executors.pool import ProcessPoolExecutor, ThreadPoolExecutor
 from fastapi import FastAPI
+import requests
 from config.settings import settings
 from app.data_collect_clean import collector, clean, validator
 from app.data_manager import api
@@ -75,6 +76,8 @@ async def run_in_process(func):
 def auto_process():
     """全自动执行采集+清洗"""
     clean_invalid_urls()
+    fetch_top_n()
+
     try:
         start_time = calculate_start_time()
         raw_data = collect_data(start_time)
@@ -133,6 +136,39 @@ def clean_invalid_urls(batch_size=100):
         except Exception as e:
             session.rollback()
             logging.error(f"清理失败: {str(e)}")
+
+
+def fetch_top_n():
+    response = None
+    try:
+        resp = requests.get(settings.fetch_top_n_api, timeout=30)
+        resp.raise_for_status()
+        response = resp.json()
+    except Exception as e:
+        logging.error(f"fetch_top_n 请求失败: {e}")
+    
+    if not response or 'data' not in response or 'topics' not in response['data']:
+        return
+
+    topics = response['data']['topics']
+    with base.SessionLocal() as session:
+        for topic in topics:
+            summary = topic.get('title')
+            resolved = topic.get('resolved', False)
+            topic_closed = True if resolved else False
+
+            for dss in topic.get('dss', []):
+                dss_id = dss.get('id')
+                if dss_id is None:
+                    continue
+                record = session.query(base.Discussion).filter(base.Discussion.id == dss_id).first()
+                if record:
+                    record.topic_summary = summary
+                    record.topic_closed = topic_closed
+                    session.add(record)
+            print(summary, resolved)
+        session.commit()
+        logging.info(f"已提交 {len(topics)}/{len(topics)} 条数据")
 
 
 def calculate_start_time() -> datetime:

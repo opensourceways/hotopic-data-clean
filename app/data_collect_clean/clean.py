@@ -315,7 +315,7 @@ class OpenEulerForumCleaner(BaseCleaner):
 
     def _is_valid(self, title, body):
         if re.search(
-            r"练习|综合实践|test|指南|攻略|探究|问题收集|公告|用户体验提升|分享|基于anaconda的搭建|网赌|【openEuler系列】|贡献报告|加油|新世界",
+            r"练习|综合实践|test|指南$|攻略$|探究|问题收集|公告|用户体验提升|分享|基于anaconda的搭建|网赌|【openEuler系列】|贡献报告|加油|新世界|经验总结",
             title,
         ):
             return False
@@ -351,11 +351,12 @@ class OpenEulerIssueCleaner(BaseCleaner):
     def _is_valid(self, title, body):
         pattern = (
             r"需求征集|English translation|补丁|CVE-|【EulerMaker】|【OEPKG】|【openEuler 25.03】|技术测评|"
-            "软件包贡献|【Easysoftware】|公告|技术交流|【22.03-SP4】|OLK|调研|特性|申请|【EUR】|test|【EasySoftware】|"
-            "汇总|文档和脚本整理|请忽略|建议升级|探索|开发路线图|迁移至|数据集生成工具|实习|模板|构建流程优化|问题清单"
+            "软件包贡献|【Easysoftware】|公告|技术交流|【22.03-SP4】|OLK|调研|特性|【EUR】|test|【EasySoftware】|"
+            "汇总|文档和脚本整理|请忽略|建议升级|探索|开发路线图|迁移至|数据集生成工具|实习|模板|构建流程优化|问题清单|"
+            "代码提交规范|文档捉虫|111|添加贡献说明|Changelog异常整改|changelog信息显示混乱|汇报"
         )
         if re.search(pattern, title):
             return False
-        if re.search(r"openEuler-AutoRepair|特性描述|开源之夏", body):
+        if re.search(r"openEuler-AutoRepair|特性描述|开源之夏|参考上游社区，更新该软件包", body):
             return False
         return True

@@ -333,7 +333,9 @@ class MindSporeIssueCleaner(BaseCleaner):
         return settings.mindspore_issue_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r"开源实习|测试任务|任务|教程|CVE-", title):
+        if re.search(r"开源实习|测试任务|任务|-教程|CVE-|优化|clean code|代码示例|【自提单】|Code Check|大赛|活动|交流帖|更新版本|实习", title):
+            return False
+        if re.search(r"转测对象", body):
             return False
         return True
 

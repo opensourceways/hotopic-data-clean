@@ -17,7 +17,7 @@ class BaseValidator(ABC):
 
     def _common_request(self, url: str, headers=None) -> Optional[requests.Response]:
         try:
-            return self._session.get(url, headers=headers, timeout=30)
+            return self._session.get(url, headers=headers, timeout=60)
         except requests.exceptions.RequestException:
             return None
 

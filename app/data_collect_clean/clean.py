@@ -282,7 +282,7 @@ class OpenEulerMailCleaner(BaseCleaner):
 
     def _is_valid(self, title, body):
         if re.search(
-            r"例会|公示|公告|纪要|非问题|公式关闭|升级|会议|转测试|订阅|年报|月报|需求持续收集中|[PATCH]|进度报告|议题申报|提醒|告警|申请|说明|指南|议程|OLK|感谢信",
+            r"例会|公示|公告|纪要|非问题|公式关闭|升级|会议|转测试|订阅|年报|月报|需求持续收集中|[PATCH]|进度报告|议题申报|提醒|告警|申请|说明|指南|议程|OLK|感谢信|兼容性列表需求",
             title,
         ):
             return False
@@ -315,7 +315,7 @@ class OpenEulerForumCleaner(BaseCleaner):
 
     def _is_valid(self, title, body):
         if re.search(
-            r"练习|综合实践|test|指南$|攻略$|探究|问题收集|公告|用户体验提升|分享|基于anaconda的搭建|网赌|【openEuler系列】|贡献报告|加油|新世界|经验总结",
+            r"练习|综合实践|test|指南$|攻略$|探究|问题收集|公告|用户体验提升|分享|基于anaconda的搭建|网赌|【openEuler系列】|贡献报告|加油|新世界|经验总结|升级专项|升级专题|基线升级|软件包升级|",
             title,
         ):
             return False
@@ -353,10 +353,10 @@ class OpenEulerIssueCleaner(BaseCleaner):
             r"需求征集|English translation|补丁|CVE-|【EulerMaker】|【OEPKG】|【openEuler 25.03】|技术测评|"
             "软件包贡献|【Easysoftware】|公告|技术交流|【22.03-SP4】|OLK|调研|特性|【EUR】|test|【EasySoftware】|"
             "汇总|文档和脚本整理|请忽略|建议升级|探索|开发路线图|迁移至|数据集生成工具|实习|模板|构建流程优化|问题清单|"
-            "代码提交规范|文档捉虫|111|添加贡献说明|Changelog异常整改|changelog信息显示混乱|汇报"
+            "代码提交规范|文档捉虫|111|添加贡献说明|Changelog异常整改|changelog信息显示混乱|汇报|需求收集|构建失败，请及时处理"
         )
         if re.search(pattern, title):
             return False
-        if re.search(r"openEuler-AutoRepair|特性描述|开源之夏|参考上游社区，更新该软件包", body):
+        if re.search(r"openEuler-AutoRepair|特性描述|开源之夏|参考上游社区，更新该软件包|Current Latest upstream version|openEuler Embedded CI-:x:FAILD", body):
             return False
         return True

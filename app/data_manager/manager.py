@@ -1,3 +1,4 @@
+from datetime import datetime
 import psycopg2
 from typing import List, Dict, Any
 import logging
@@ -49,6 +50,38 @@ class DataManager:
         except Exception as e:
             self.logger.error(f"分页查询失败: {str(e)}")
             raise
+
+    def fetch_posts_created_after(self, created_after: datetime, page: int = 1, page_size: int = 100) -> List[Dict[str, Any]]:
+        """
+        获取指定时间之后创建的帖子列表
+
+        :param created_after: 起始时间，查询该时间之后创建的帖子
+        :return: 帖子字典列表
+        """
+        if page < 1 or page_size < 1:
+            raise ValueError("页码和分页大小必须大于0")
+
+        offset = (page - 1) * page_size
+        try:
+            with psycopg2.connect(**self.DB_CONFIG) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT * FROM {self.table_name}
+                        WHERE created_at >= %s AND is_deleted = FALSE
+                        ORDER BY created_at ASC
+                        LIMIT %s OFFSET %s;
+                        """,
+                        (created_after, page_size, offset),
+                        
+                    )
+                    columns = [desc[0] for desc in cursor.description]
+                    results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                    return results
+        except Exception as e:
+            self.logger.error(f"查询创建时间在 {created_after} 之后的帖子失败: {str(e)}")
+            raise
+
 
     def get_total_count(self):
         try:

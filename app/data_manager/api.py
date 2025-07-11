@@ -44,11 +44,12 @@ def get_latest(
     page_size: int = Query(100, ge=1, le=500, description="每页数量"),
 ):
     try:
-        today = datetime.now().date()
-        # 计算上周五日期
-        days_since_friday = (today.weekday() - 4) % 7  # 4代表周五
+        today = datetime.now()
+        days_since_friday = (today.weekday() - 4) % 7  # 4代表周五的weekday索引
         last_friday = today - timedelta(days=days_since_friday)
-        last_friday_start = datetime.combine(last_friday, datetime.min.time())
+        if days_since_friday == 0:
+            last_friday -= timedelta(days=7)
+        last_friday_start = last_friday.replace(hour=0, minute=0, second=0, microsecond=0)
 
         posts = data_manager.fetch_posts_created_after(last_friday_start, page, page_size)
 

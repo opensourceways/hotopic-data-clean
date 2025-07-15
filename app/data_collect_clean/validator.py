@@ -61,7 +61,7 @@ class IssueValidator(BaseValidator):
             return True
 
         elif "gitee.com" in target:
-            response = self._common_request(target.split("/issues")[0])
+            response = self._common_request(target)
         else:
             return False
 

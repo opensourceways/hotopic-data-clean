@@ -82,6 +82,10 @@ async def manual_trigger():
     await run_in_process(auto_process)
     return {"status": "manual run completed"}
 
+@app.post("/manual-fetch")
+async def manual_fetch_top_n():
+    await run_in_process(fetch_top_n)
+    return {"status": "manual fetch completed"}
 
 async def run_in_process(func):
     loop = asyncio.get_event_loop()

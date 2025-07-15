@@ -173,7 +173,7 @@ def fetch_top_n():
     with base.SessionLocal() as session:
         for topic in topics:
             summary = topic.get('title')
-            resolved = topic.get('resolved', False)
+            resolved = topic.get('status', {}).get('status', '') == "Resolved"
             topic_closed = True if resolved else False
 
             for dss in topic.get('dss', []):

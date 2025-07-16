@@ -138,7 +138,7 @@ class IssueCollector(BaseDataStatCollect):
 
     def _get_filters(self, start_time: datetime) -> List[Dict]:
         return [
-            {"column": "is_issue", "operator": "=", "value": "1"},
+            {"column": "contrib_type", "operator": "=", "value": "issue"},
             {
                 "column": "updated_at",
                 "operator": ">",

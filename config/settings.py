@@ -48,6 +48,7 @@ class Settings:
             self.db_port: str = config.get("DB_PORT")
             self.db_name: str = config.get("DB_NAME")
             self.fetch_top_n_api: str = config.get("FETCH_TOP_N_API")
+            self.fetch_not_hot_api: str = config.get("FETCH_NOT_HOT_API")
 
 
 settings = Settings()

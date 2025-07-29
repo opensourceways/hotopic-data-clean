@@ -20,7 +20,7 @@ def get_db_url():
     return f"postgresql://{user}:{password}@{host}:{port}/{db_name}"
 
 
-engine = create_engine(get_db_url())
+engine = create_engine(get_db_url(), pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -46,6 +46,7 @@ class Discussion(Base):
     history = Column(JSON)
     source_closed = Column(Boolean, default=False)
     is_deleted = Column(Boolean, default=False)
+    posted = Column(Boolean, default=False)
 
 
 def check_and_create_tables():

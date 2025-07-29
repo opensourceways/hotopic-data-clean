@@ -27,9 +27,7 @@ trigger = CronTrigger(
     hour="*/3", timezone="UTC", jitter=30  # 添加随机抖动，避免定点执行冲突
 )
 
-trigger_week = CronTrigger(
-    day_of_week="mon", hour="12", minute="0", timezone="UTC"
-)
+trigger_week = CronTrigger(day_of_week="mon", hour="12", minute="0", timezone="UTC")
 
 
 def scheduled_task():
@@ -44,6 +42,7 @@ def scheduled_fetch_top_n():
         fetch_top_n()
     except Exception as e:
         logging.error(f"Scheduled fetch top n failed: {str(e)}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -82,9 +81,15 @@ async def manual_trigger():
     await run_in_process(auto_process)
     return {"status": "manual run completed"}
 
+
 @app.post("/manual-fetch")
 async def manual_fetch_top_n():
     await run_in_process(fetch_top_n)
+    return {"status": "manual fetch completed"}
+
+@app.post("/manual-fetch-not")
+async def manual_fetch_not_top_n():
+    await run_in_process(fetch_unpost_topics)
     return {"status": "manual fetch completed"}
 
 async def run_in_process(func):
@@ -95,7 +100,7 @@ async def run_in_process(func):
 def auto_process():
     """全自动执行采集+清洗"""
     clean_invalid_urls()
-    fetch_top_n()
+    fetch_unpost_topics()
 
     try:
         start_time = calculate_start_time()
@@ -116,6 +121,7 @@ def initialize_processing_environment():
 def clean_invalid_urls(batch_size=100):
     """
     分批清理无效URL，避免阻塞服务。
+    使用基于主键的分页，避免offset导致的连接超时。
     """
     with base.SessionLocal() as session:
         try:
@@ -126,11 +132,15 @@ def clean_invalid_urls(batch_size=100):
                 "mail": validator.MailValidator(),
             }
 
-            query = session.query(base.Discussion).filter(base.Discussion.is_deleted == False)
-            offset = 0
-
+            last_id = 0
             while True:
-                records = query.offset(offset).limit(batch_size).all()
+                records = (
+                    session.query(base.Discussion)
+                    .filter(base.Discussion.is_deleted == False, base.Discussion.id > last_id)
+                    .order_by(base.Discussion.id)
+                    .limit(batch_size)
+                    .all()
+                )
                 if not records:
                     break
 
@@ -147,7 +157,8 @@ def clean_invalid_urls(batch_size=100):
                     session.commit()
                     total_deleted += update_count
                     logging.info(f"已标记 {update_count} 条无效URL记录")
-                offset += batch_size
+
+                last_id = records[-1].id
 
             if total_deleted == 0:
                 logging.info("未找到无效URL记录")
@@ -155,6 +166,40 @@ def clean_invalid_urls(batch_size=100):
         except Exception as e:
             session.rollback()
             logging.error(f"清理失败: {str(e)}")
+
+
+def fetch_unpost_topics():
+    response = None
+    try:
+        resp = requests.get(settings.fetch_not_hot_api, timeout=30)
+        resp.raise_for_status()
+        response = resp.json()
+    except Exception as e:
+        logging.error(f"fetch_unpost_topics 请求失败: {e}")
+
+    if not response or "data" not in response or "topics" not in response["data"]:
+        return
+
+    topics = response["data"]["topics"]
+    with base.SessionLocal() as session:
+        for topic in topics:
+            summary = topic.get("title")
+
+            for dss in topic.get("dss", []):
+                dss_id = dss.get("id")
+                if dss_id is None:
+                    continue
+                record = (
+                    session.query(base.Discussion)
+                    .filter(base.Discussion.id == dss_id)
+                    .first()
+                )
+                if record:
+                    record.topic_summary = summary
+                    record.topic_closed = dss.get("closed")
+                    record.posted = False
+                    session.add(record)
+        session.commit()
 
 
 def fetch_top_n():
@@ -165,25 +210,30 @@ def fetch_top_n():
         response = resp.json()
     except Exception as e:
         logging.error(f"fetch_top_n 请求失败: {e}")
-    
-    if not response or 'data' not in response or 'topics' not in response['data']:
+
+    if not response or "data" not in response or "topics" not in response["data"]:
         return
 
-    topics = response['data']['topics']
+    topics = response["data"]["topics"]
     with base.SessionLocal() as session:
         for topic in topics:
-            summary = topic.get('title')
-            resolved = topic.get('status', {}).get('status', '') == "Resolved"
+            summary = topic.get("title")
+            resolved = topic.get("status", {}).get("status", "") == "Resolved"
             topic_closed = True if resolved else False
 
-            for dss in topic.get('dss', []):
-                dss_id = dss.get('id')
+            for dss in topic.get("dss", []):
+                dss_id = dss.get("id")
                 if dss_id is None:
                     continue
-                record = session.query(base.Discussion).filter(base.Discussion.id == dss_id).first()
+                record = (
+                    session.query(base.Discussion)
+                    .filter(base.Discussion.id == dss_id)
+                    .first()
+                )
                 if record:
                     record.topic_summary = summary
                     record.topic_closed = topic_closed
+                    record.posted = True
                     session.add(record)
             print(summary, resolved)
         session.commit()

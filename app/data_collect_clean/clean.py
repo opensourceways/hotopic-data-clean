@@ -79,6 +79,15 @@ class BaseCleaner(ABC):
         text = re.sub(r"<.*?>", "", text)
         return re.sub(r"[^\u4e00-\u9fa5a-zA-Z0-9，。！？；：、]", " ", text).strip()
 
+    def _basic_clean_before_llm(self, text):
+        text = re.sub(r"(?m)^\s*发件人：.*$", "", text)
+        text = re.sub(r"(?m)^\s*发送日期：.*$", "", text)
+        text = re.sub(r"(?m)^\s*收件人：.*$", "", text)
+        # 多个空格合并为一个空格
+        text = re.sub(r"\s+", " ", text)
+        # 去除多余空白
+        return text.strip()
+    
     def process(self, start_date):
         data_before_clean = self.collector.collect(start_date)
         for raw_data in tqdm(data_before_clean, desc="Processing data"):
@@ -108,6 +117,8 @@ class BaseCleaner(ABC):
     def _build_record(self, raw_data):
         if not all(k in raw_data for k in ("id", "title", "body")):
             raise ValueError("缺失必要字段")
+        if raw_data["body"].strip() == "":
+            raise ValueError(f"本数据无效{raw_data['id']} - {raw_data['title']}")
         if not self._is_valid(raw_data["title"], raw_data["body"]):
             raise ValueError(f"本数据无效{raw_data['id']} - {raw_data['title']}")
         created_at = raw_data.get("created_at", datetime.now())
@@ -117,9 +128,20 @@ class BaseCleaner(ABC):
         if isinstance(updated_at, datetime):
             updated_at = updated_at.strftime("%Y-%m-%d %H:%M:%S")
         if not self._is_exist(str(raw_data["id"])):
-            llm_content = self._llm_process(
-                f"标题：{raw_data['title']}\n内容：{raw_data['body']}"
-            )
+            if self.source_type == 'mail':
+                clean_body = self._basic_clean_before_llm(raw_data["body"])
+                logger.info(f"中间清理数据：{clean_body}")
+                if len(clean_body) <= 1000:
+                    llm_content = f"标题：{raw_data['title']}\n内容：{clean_body}"
+                else:
+                    llm_content = self._llm_process(
+                        f"标题：{raw_data['title']}\n内容：{clean_body}"
+                    )
+            else:
+                clean_body = raw_data["body"]
+                llm_content = self._llm_process(
+                    f"标题：{raw_data['title']}\n内容：{clean_body}"
+                )
         else:
             llm_content = ""
         return FormattedRecord(

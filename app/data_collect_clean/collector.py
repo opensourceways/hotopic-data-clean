@@ -220,8 +220,27 @@ class MailCollector(BaseDataStatCollect):
         logging.info(f"共有{len(raw_data)}条数据")
         email_id_map = {item["email_id"]: item for item in raw_data}
 
-        processed_data = []
+        # 找到每条邮件的根邮件id（最初邮件）
+        def find_root_email_id(item):
+            parent_id = item.get("parent_id")
+            # 如果没有parent_id，自己就是根邮件
+            if not parent_id:
+                return item["email_id"]
+            # 递归查找父邮件，直到没有parent_id
+            parent = email_id_map.get(parent_id)
+            if not parent:
+                return item["email_id"]  # 父邮件找不到，视为根邮件
+            return find_root_email_id(parent)
+
+        # 按根邮件id分组，保留每组中created_at最新的item
+        latest_per_root = {}
         for item in raw_data:
+            root_id = find_root_email_id(item)
+            current = latest_per_root.get(root_id)
+            if not current or item.get("created_at", "") > current.get("created_at", ""):
+                latest_per_root[root_id] = item
+        processed_data = []
+        for item in latest_per_root.values():
             parent_id = item.get("parent_id")
             list_name = item.get("list_name", "")
             message_id_hash = item.get("message_id_hash", "")

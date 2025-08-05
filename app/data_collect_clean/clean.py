@@ -18,10 +18,25 @@ class Record:
 
 
 class FormattedRecord:
-    def __init__(self, title, body, url, created_at, updated_at, topic_closed, history, clean_data, topic_summary,
-                 source_type, source_id, source_closed):
+    def __init__(
+        self,
+        title,
+        body,
+        solution,
+        url,
+        created_at,
+        updated_at,
+        topic_closed,
+        history,
+        clean_data,
+        topic_summary,
+        source_type,
+        source_id,
+        source_closed,
+    ):
         self.title = title
         self.body = body
+        self.solution = solution
         self.url = url
         self.created_at = created_at
         self.updated_at = updated_at
@@ -37,15 +52,14 @@ class FormattedRecord:
 class BaseCleaner(ABC):
     def __init__(self, collector):
         self.client = OpenAI(
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_api_url
+            api_key=settings.llm_api_key, base_url=settings.llm_api_url
         )
         self.collector = collector
         self.model = settings.llm_model
         self.system_prompt = self._get_system_prompt()
 
     @abstractmethod
-    def _get_system_prompt(self):
+    def _get_system_prompt(self) -> str:
         pass
 
     @retry(stop_max_attempt_number=3, wait_fixed=1000)
@@ -56,7 +70,7 @@ class BaseCleaner(ABC):
                 messages=[
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": content},
-                ]
+                ],
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -64,9 +78,18 @@ class BaseCleaner(ABC):
             raise
 
     def _basic_clean(self, text):
-        text = re.sub(r'<.*?>', '', text)
-        return re.sub(r'[^\u4e00-\u9fa5a-zA-Z0-9，。！？；：、]', ' ', text).strip()
+        text = re.sub(r"<.*?>", "", text)
+        return re.sub(r"[^\u4e00-\u9fa5a-zA-Z0-9，。！？；：、]", " ", text).strip()
 
+    def _basic_clean_before_llm(self, text):
+        text = re.sub(r"(?m)^\s*发件人：.*$", "", text)
+        text = re.sub(r"(?m)^\s*发送日期：.*$", "", text)
+        text = re.sub(r"(?m)^\s*收件人：.*$", "", text)
+        # 多个空格合并为一个空格
+        text = re.sub(r"\s+", " ", text)
+        # 去除多余空白
+        return text.strip()
+    
     def process(self, start_date):
         data_before_clean = self.collector.collect(start_date)
         for raw_data in tqdm(data_before_clean, desc="Processing data"):
@@ -78,7 +101,11 @@ class BaseCleaner(ABC):
 
     def _is_exist(self, source_id: str) -> bool:
         with base.SessionLocal() as session:
-            existing_record = session.query(base.Discussion).filter(base.Discussion.source_id == source_id).first()
+            existing_record = (
+                session.query(base.Discussion)
+                .filter(base.Discussion.source_id == source_id)
+                .first()
+            )
             if not existing_record:
                 return False
             if not existing_record.clean_data:
@@ -86,42 +113,58 @@ class BaseCleaner(ABC):
             return True
 
     @abstractmethod
-    def _is_valid(self, title, body):
+    def _is_valid(self, title, body) -> bool:
         return True
 
     def _build_record(self, raw_data):
-        if not all(k in raw_data for k in ('id', 'title', 'body')):
+        if not all(k in raw_data for k in ("id", "title", "body")):
             raise ValueError("缺失必要字段")
-        if not self._is_valid(raw_data['title'], raw_data['body']):
+        if raw_data["body"].strip() == "":
             raise ValueError(f"本数据无效{raw_data['id']} - {raw_data['title']}")
-        created_at = raw_data.get('created_at', datetime.now())
+        if not self._is_valid(raw_data["title"], raw_data["body"]):
+            raise ValueError(f"本数据无效{raw_data['id']} - {raw_data['title']}")
+        created_at = raw_data.get("created_at", datetime.now())
         if isinstance(created_at, datetime):
-            created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
-        updated_at = raw_data.get('updated_at', None)
+            created_at = created_at.strftime("%Y-%m-%d %H:%M:%S")
+        updated_at = raw_data.get("updated_at", None)
         if isinstance(updated_at, datetime):
-            updated_at = updated_at.strftime('%Y-%m-%d %H:%M:%S')
-        if not self._is_exist(str(raw_data['id'])):
-            llm_content = self._llm_process(f"标题：{raw_data['title']}\n内容：{raw_data['body']}")
+            updated_at = updated_at.strftime("%Y-%m-%d %H:%M:%S")
+        if not self._is_exist(str(raw_data["id"])):
+            if self.source_type == 'mail':
+                clean_body = self._basic_clean_before_llm(raw_data["body"])
+                logger.info(f"中间清理数据：{clean_body}")
+                if len(clean_body) <= 1000:
+                    llm_content = f"标题：{raw_data['title']}\n内容：{clean_body}"
+                else:
+                    llm_content = self._llm_process(
+                        f"标题：{raw_data['title']}\n内容：{clean_body}"
+                    )
+            else:
+                clean_body = raw_data["body"]
+                llm_content = self._llm_process(
+                    f"标题：{raw_data['title']}\n内容：{clean_body}"
+                )
         else:
-            llm_content = ''
+            llm_content = ""
         return FormattedRecord(
-            title=raw_data['title'],
-            body=raw_data['body'],
-            url=raw_data.get('url', ''),
+            title=raw_data["title"],
+            body=raw_data["body"],
+            solution=raw_data["solution"],
+            url=raw_data.get("url", ""),
             created_at=created_at,
             updated_at=updated_at,
-            topic_closed=raw_data.get('closed', False),
-            history=raw_data.get('history', '[]'),
+            topic_closed=raw_data.get("closed", False),
+            history=raw_data.get("history", "[]"),
             clean_data=self._basic_clean(llm_content),
-            topic_summary='',
+            topic_summary="",
             source_type=self.source_type,
-            source_id=raw_data['id'],
-            source_closed=raw_data.get('state', '') == 'closed'
+            source_id=raw_data["id"],
+            source_closed=raw_data.get("state", "") == "closed",
         )
 
     @property
     @abstractmethod
-    def source_type(self):
+    def source_type(self) -> str:
         pass
 
 
@@ -130,11 +173,11 @@ def get_issue_cleaner(community, collector):
         return CANNIssueCleaner(collector)
     elif community == "openubmc":
         return OpenUBMCIssueCleaner(collector)
-    elif community == 'opengauss':
+    elif community == "opengauss":
         return OpenGaussIssueCleaner(collector)
-    elif community == 'mindspore':
+    elif community == "mindspore":
         return MindSporeIssueCleaner(collector)
-    elif community == 'openeuler':
+    elif community == "openeuler":
         return OpenEulerIssueCleaner(collector)
     else:
         raise ValueError("未知社区")
@@ -171,7 +214,7 @@ class CANNForumCleaner(BaseCleaner):
         return settings.cann_forum_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r'从入门到精通|学习|指导|笔记|分享|训练营', title):
+        if re.search(r"从入门到精通|学习|指导|笔记|分享|训练营", title):
             return False
         return True
 
@@ -185,11 +228,18 @@ class CANNIssueCleaner(BaseCleaner):
         return settings.cann_issue_prompt
 
     def _is_valid(self, title, body):
+        if re.search(r"从入门到精通|学习|指导|笔记|分享|训练营|test", title):
+            return False
         return True
 
 
 class OpenUBMCForumCleaner(BaseCleaner):
     def _is_valid(self, title, body):
+        if re.search(
+            r"维护通知|QA 运作规则讨论|指南|例会|启航行动|一键创建|模板|变更声明|qqqq|openUBMC各sig组本周|投票|FAQ|活动|【维护通知】",
+            title,
+        ):
+            return False
         return True
 
     @property
@@ -205,10 +255,13 @@ class OpenUBMCIssueCleaner(BaseCleaner):
     def source_type(self):
         return "issue"
 
+
     def _get_system_prompt(self):
         return settings.openubmc_issue_prompt
 
     def _is_valid(self, title, body):
+        if re.search(r"模板|指南|normally open|自动生成代码|引入了几个实体", title):
+            return False
         return True
 
 
@@ -221,7 +274,7 @@ class OpenGaussIssueCleaner(BaseCleaner):
         return settings.opengauss_issue_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r'用户数据迁移授权协议|个人信息迁移同意书|normally open', title):
+        if re.search(r"用户数据迁移授权协议|个人信息迁移同意书|normally open", title):
             return False
         return True
 
@@ -235,9 +288,11 @@ class OpenGaussMailCleaner(BaseCleaner):
         return settings.opengauss_mail_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r'例会|公示|公告|纪要|非问题|公式关闭|升级通知|会议|转测试', title):
+        if re.search(
+            r"例会|公示|公告|纪要|非问题|公式关闭|升级通知|会议|转测试", title
+        ):
             return False
-        if re.search(r'邀请您参加|会议主题', body):
+        if re.search(r"邀请您参加|会议主题", body):
             return False
         return True
 
@@ -251,9 +306,12 @@ class OpenEulerMailCleaner(BaseCleaner):
         return settings.openeuler_mail_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r'例会|公示|公告|纪要|非问题|公式关闭|升级|会议|转测试|订阅|年报|月报|需求持续收集中|[PATCH]|进度报告|议题申报|提醒|告警|申请|说明|指南|议程|OLK|感谢信', title):
+        if re.search(
+            r"例会|公示|公告|纪要|非问题|公式关闭|升级|会议|转测试|订阅|年报|月报|需求持续收集中|[PATCH]|进度报告|议题申报|提醒|告警|申请|说明|指南|议程|OLK|感谢信|兼容性列表需求",
+            title,
+        ):
             return False
-        if re.search(r'邀请您参加|会议主题', body):
+        if re.search(r"邀请您参加|会议主题", body):
             return False
         return True
 
@@ -267,7 +325,7 @@ class MindSporeForumCleaner(BaseCleaner):
         return settings.mindspore_forum_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r'指南|干货小卖部|开发者说|课程|体验|0day同步！|扩散模型', title):
+        if re.search(r"指南|干货小卖部|开发者说|课程|体验|0day同步！|扩散模型|应用系列|推导", title):
             return False
         return True
 
@@ -281,9 +339,12 @@ class OpenEulerForumCleaner(BaseCleaner):
         return settings.openeuler_forum_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r'练习|综合实践|test|指南|攻略|探究|问题收集|公告', title):
+        if re.search(
+            r"练习|综合实践|test|指南$|攻略$|探究|问题收集|公告|用户体验提升|分享|基于anaconda的搭建|网赌|【openEuler系列】|贡献报告|加油|新世界|经验总结|升级专项|升级专题|基线升级|软件包升级|",
+            title,
+        ):
             return False
-        if re.search(r'实验介绍', body):
+        if re.search(r"实验介绍|已被社区举报", body):
             return False
         return True
 
@@ -297,7 +358,9 @@ class MindSporeIssueCleaner(BaseCleaner):
         return settings.mindspore_issue_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r'开源实习|测试任务|任务', title):
+        if re.search(r"开源实习|测试任务|任务|-教程|CVE-|优化|clean code|代码示例|【自提单】|Code Check|大赛|活动|交流帖|更新版本|实习|官网用例", title):
+            return False
+        if re.search(r"转测对象", body):
             return False
         return True
 
@@ -311,6 +374,14 @@ class OpenEulerIssueCleaner(BaseCleaner):
         return settings.openeuler_issue_prompt
 
     def _is_valid(self, title, body):
-        if re.search(r'需求征集|English translation|补丁|CVE-|【EulerMaker】|【OEPKG】', title):
+        pattern = (
+            r"需求征集|English translation|补丁|CVE-|【EulerMaker】|【OEPKG】|【openEuler 25.03】|技术测评|"
+            "软件包贡献|【Easysoftware】|公告|技术交流|【22.03-SP4】|OLK|调研|特性|【EUR】|test|【EasySoftware】|"
+            "汇总|文档和脚本整理|请忽略|建议升级|探索|开发路线图|迁移至|数据集生成工具|实习|模板|构建流程优化|问题清单|"
+            "代码提交规范|文档捉虫|111|添加贡献说明|Changelog异常整改|changelog信息显示混乱|汇报|需求收集|构建失败，请及时处理"
+        )
+        if re.search(pattern, title):
+            return False
+        if re.search(r"openEuler-AutoRepair|特性描述|开源之夏|参考上游社区，更新该软件包|Current Latest upstream version|openEuler Embedded CI-:x:FAILD", body):
             return False
         return True

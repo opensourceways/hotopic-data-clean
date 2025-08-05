@@ -1,5 +1,6 @@
 import logging
 import os
+from re import S
 import yaml
 
 
@@ -18,6 +19,9 @@ class Settings:
             self.opengauss_issue_prompt: str = config.get("OPENGAUSS_ISSUE_PROMPT")
             self.mindspore_forum_prompt: str = config.get("MINDSPORE_FORUM_PROMPT")
             self.mindspore_issue_prompt: str = config.get("MINDSPORE_ISSUE_PROMPT")
+            self.openeuler_forum_prompt: str = config.get("OPENEULER_FORUM_PROMPT")
+            self.openeuler_issue_prompt: str = config.get("OPENEULER_ISSUE_PROMPT")
+            self.openeuler_mail_prompt: str = config.get("OPENEULER_MAIL_PROMPT")
 
         secret_config_path = os.getenv("SECRET_CONFIG")
         if not secret_config_path:
@@ -43,6 +47,8 @@ class Settings:
             self.db_host: str = config.get("DB_HOST")
             self.db_port: str = config.get("DB_PORT")
             self.db_name: str = config.get("DB_NAME")
+            self.fetch_top_n_api: str = config.get("FETCH_TOP_N_API")
+            self.fetch_not_hot_api: str = config.get("FETCH_NOT_HOT_API")
 
 
 settings = Settings()

@@ -1,10 +1,12 @@
 import asyncio
+from encodings.punycode import T
 import json
 import logging
 from datetime import datetime, timedelta
 
 from apscheduler.executors.pool import ProcessPoolExecutor, ThreadPoolExecutor
 from fastapi import FastAPI
+import requests
 from config.settings import settings
 from app.data_collect_clean import collector, clean, validator
 from app.data_manager import api
@@ -17,21 +19,15 @@ from contextlib import asynccontextmanager
 
 scheduler = BackgroundScheduler(
     timezone="UTC",
-    executors={
-        'default': ThreadPoolExecutor(4),
-        'processpool': ProcessPoolExecutor(3)
-    },
-    job_defaults={
-        'max_instances': 1,
-        'misfire_grace_time': 120
-    }
+    executors={"default": ThreadPoolExecutor(4), "processpool": ProcessPoolExecutor(3)},
+    job_defaults={"max_instances": 1, "misfire_grace_time": 120},
 )
 
 trigger = CronTrigger(
-    hour='*/3',
-    timezone="UTC",
-    jitter=30  # 添加随机抖动，避免定点执行冲突
+    hour="*/3", timezone="UTC", jitter=30  # 添加随机抖动，避免定点执行冲突
 )
+
+trigger_week = CronTrigger(day_of_week="mon", hour="12", minute="0", timezone="UTC")
 
 
 def scheduled_task():
@@ -41,13 +37,26 @@ def scheduled_task():
         logging.error(f"Scheduled task failed: {str(e)}")
 
 
+def scheduled_fetch_top_n():
+    try:
+        fetch_top_n()
+    except Exception as e:
+        logging.error(f"Scheduled fetch top n failed: {str(e)}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.start()
+    initialize_processing_environment()
     scheduler.add_job(
         scheduled_task,
         trigger=trigger,
-        executor='default',
+        executor="default",
+    )
+    scheduler.add_job(
+        scheduled_fetch_top_n,
+        trigger=trigger_week,
+        executor="default",
     )
     yield
     scheduler.shutdown()
@@ -57,16 +66,14 @@ app = FastAPI(
     lifespan=lifespan,
     title="数据清洗服务",
     description="提供数据清洗处理API",
-    version="1.0.0"
+    version="1.0.0",
 )
 app.include_router(api.router, prefix="/api/v1", tags=["webhooks"])
 
 
 @app.get("/health", tags=["监控"])
 async def health_check():
-    return {
-        "status": "ok",
-        "environment": settings.env}
+    return {"status": "ok", "environment": settings.env}
 
 
 @app.post("/manual-run")
@@ -75,6 +82,16 @@ async def manual_trigger():
     return {"status": "manual run completed"}
 
 
+@app.post("/manual-fetch")
+async def manual_fetch_top_n():
+    await run_in_process(fetch_top_n)
+    return {"status": "manual fetch completed"}
+
+@app.post("/manual-fetch-not")
+async def manual_fetch_not_top_n():
+    await run_in_process(fetch_unpost_topics)
+    return {"status": "manual fetch completed"}
+
 async def run_in_process(func):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, func)
@@ -82,8 +99,8 @@ async def run_in_process(func):
 
 def auto_process():
     """全自动执行采集+清洗"""
-    initialize_processing_environment()
     clean_invalid_urls()
+    fetch_unpost_topics()
 
     try:
         start_time = calculate_start_time()
@@ -95,48 +112,132 @@ def auto_process():
 
 def initialize_processing_environment():
     """初始化日志和数据库"""
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
     init_db.init_database()
     base.check_and_create_tables()
 
 
-def clean_invalid_urls():
+def clean_invalid_urls(batch_size=100):
+    """
+    分批清理无效URL，避免阻塞服务。
+    使用基于主键的分页，避免offset导致的连接超时。
+    """
     with base.SessionLocal() as session:
         try:
-            records = session.query(base.Discussion).filter(
-                base.Discussion.is_deleted == False  # 仅处理未删除记录
-            )
-
-            # 初始化验证器字典
+            total_deleted = 0
             validators = {
                 "issue": validator.IssueValidator(),
                 "forum": validator.GetForumValidator(settings.community),
-                "mail": validator.MailValidator()
+                "mail": validator.MailValidator(),
             }
 
-            update_count = 0
-            for record in records:
-                validator_for_type = validators.get(record.source_type.lower())
-                if not validator_for_type:
-                    continue
+            last_id = 0
+            while True:
+                records = (
+                    session.query(base.Discussion)
+                    .filter(base.Discussion.is_deleted == False, base.Discussion.id > last_id)
+                    .order_by(base.Discussion.id)
+                    .limit(batch_size)
+                    .all()
+                )
+                if not records:
+                    break
 
-                if not validator_for_type.validate(record.url):
-                    record.is_deleted = True
-                    update_count += 1
-                    logging.debug(f"标记删除URL: {record.url}")
+                update_count = 0
+                for record in records:
+                    validator_for_type = validators.get(record.source_type.lower())
+                    if not validator_for_type:
+                        continue
+                    if not validator_for_type.validate(record.url):
+                        record.is_deleted = True
+                        update_count += 1
 
-            if update_count > 0:
-                session.commit()
-                logging.info(f"已标记 {update_count} 条无效URL记录")
-            else:
+                if update_count > 0:
+                    session.commit()
+                    total_deleted += update_count
+                    logging.info(f"已标记 {update_count} 条无效URL记录")
+
+                last_id = records[-1].id
+
+            if total_deleted == 0:
                 logging.info("未找到无效URL记录")
 
         except Exception as e:
             session.rollback()
             logging.error(f"清理失败: {str(e)}")
-        finally:
-            session.close()
+
+
+def fetch_unpost_topics():
+    response = None
+    try:
+        resp = requests.get(settings.fetch_not_hot_api, timeout=30)
+        resp.raise_for_status()
+        response = resp.json()
+    except Exception as e:
+        logging.error(f"fetch_unpost_topics 请求失败: {e}")
+
+    if not response or "data" not in response or "topics" not in response["data"]:
+        return
+
+    topics = response["data"]["topics"]
+    with base.SessionLocal() as session:
+        for topic in topics:
+            summary = topic.get("title")
+
+            for dss in topic.get("dss", []):
+                dss_id = dss.get("id")
+                if dss_id is None:
+                    continue
+                record = (
+                    session.query(base.Discussion)
+                    .filter(base.Discussion.id == dss_id)
+                    .first()
+                )
+                if record:
+                    record.topic_summary = summary
+                    record.topic_closed = dss.get("closed")
+                    record.posted = False
+                    session.add(record)
+        session.commit()
+
+
+def fetch_top_n():
+    response = None
+    try:
+        resp = requests.get(settings.fetch_top_n_api, timeout=30)
+        resp.raise_for_status()
+        response = resp.json()
+    except Exception as e:
+        logging.error(f"fetch_top_n 请求失败: {e}")
+
+    if not response or "data" not in response or "topics" not in response["data"]:
+        return
+
+    topics = response["data"]["topics"]
+    with base.SessionLocal() as session:
+        for topic in topics:
+            summary = topic.get("title")
+            resolved = topic.get("status", {}).get("status", "") == "Resolved"
+            topic_closed = True if resolved else False
+
+            for dss in topic.get("dss", []):
+                dss_id = dss.get("id")
+                if dss_id is None:
+                    continue
+                record = (
+                    session.query(base.Discussion)
+                    .filter(base.Discussion.id == dss_id)
+                    .first()
+                )
+                if record:
+                    record.topic_summary = summary
+                    record.topic_closed = topic_closed
+                    record.posted = True
+                    session.add(record)
+            print(summary, resolved)
+        session.commit()
+        logging.info(f"已提交 {len(topics)}/{len(topics)} 条数据")
 
 
 def calculate_start_time() -> datetime:
@@ -159,23 +260,52 @@ def collect_data(start_time: datetime) -> list:
     community_map = {
         "openubmc": [
             ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
-            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)
+            (
+                "issue",
+                lambda c: collector.IssueCollector(c, settings.dws_name),
+                clean.get_issue_cleaner,
+            ),
         ],
         "cann": [
             ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
-            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner)],
+            (
+                "issue",
+                lambda c: collector.IssueCollector(c, settings.dws_name),
+                clean.get_issue_cleaner,
+            ),
+        ],
         "opengauss": [
-            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
-            ("mail", lambda c: collector.MailCollector(c, settings.mail_dws_name), clean.get_mail_cleaner)
+            (
+                "issue",
+                lambda c: collector.IssueCollector(c, settings.dws_name),
+                clean.get_issue_cleaner,
+            ),
+            (
+                "mail",
+                lambda c: collector.MailCollector(c, settings.mail_dws_name),
+                clean.get_mail_cleaner,
+            ),
         ],
         "mindspore": [
-            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
-            ("forum", collector.get_forum_collector, clean.get_forum_cleaner)
+            (
+                "issue",
+                lambda c: collector.IssueCollector(c, settings.dws_name),
+                clean.get_issue_cleaner,
+            ),
+            ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
         ],
         "openeuler": [
-            ("issue", lambda c: collector.IssueCollector(c, settings.dws_name), clean.get_issue_cleaner),
+            (
+                "issue",
+                lambda c: collector.IssueCollector(c, settings.dws_name),
+                clean.get_issue_cleaner,
+            ),
             ("forum", collector.get_forum_collector, clean.get_forum_cleaner),
-            ("mail", lambda c: collector.MailCollector(c, settings.mail_dws_name), clean.get_mail_cleaner)
+            (
+                "mail",
+                lambda c: collector.MailCollector(c, settings.mail_dws_name),
+                clean.get_mail_cleaner,
+            ),
         ],
     }
 
@@ -200,7 +330,7 @@ def store_processed_data(raw_data: list):
         try:
             BATCH_SIZE = 50
             for i in range(0, len(raw_data), BATCH_SIZE):
-                process_batch(session, raw_data[i:i + BATCH_SIZE], i, BATCH_SIZE)
+                process_batch(session, raw_data[i : i + BATCH_SIZE], i, BATCH_SIZE)
         except Exception as e:
             session.rollback()
             raise e
@@ -209,13 +339,15 @@ def store_processed_data(raw_data: list):
 def process_batch(session, batch: list, index: int, batch_size: int):
     """处理单个数据批次"""
     for record in batch:
-        if isinstance(clean_data := record['clean_data'], str) and clean_data.startswith('"'):
+        if isinstance(
+            clean_data := record["clean_data"], str
+        ) and clean_data.startswith('"'):
             try:
-                record['clean_data'] = json.loads(clean_data)
+                record["clean_data"] = json.loads(clean_data)
             except json.JSONDecodeError:
                 pass
 
-        title, url = record['title'], record['url']
+        title, url = record["title"], record["url"]
         logging.info(f"正在提交记录: {title} - {url}")
         session.execute(build_upsert_statement(record))
 
@@ -224,31 +356,35 @@ def process_batch(session, batch: list, index: int, batch_size: int):
 
 
 def build_upsert_statement(record: dict):
-    return insert(base.Discussion).values(
-        source_id=record['source_id'],
-        source_type=record['source_type'],
-        title=record['title'],
-        body=record['body'],
-        url=record['url'],
-        topic_summary=record['topic_summary'],
-        topic_closed=record['topic_closed'],
-        created_at=record['created_at'],
-        updated_at=record['updated_at'],
-        clean_data=record['clean_data'],
-        history=record['history'],
-        source_closed=record['source_closed'],
-    ).on_conflict_do_update(
-        index_elements=['source_id', 'source_type'],
-        set_={
-            # 'history': text(
-            #     "history || jsonb_build_array(jsonb_build_object('title', EXCLUDED.title, 'body', EXCLUDED.body, 'time', NOW()::timestamp))"
-            # ),
-            'title': record['title'],
-            'body': record['body'],
-            'url': record['url'],
-            'source_closed': record['source_closed'],
-            'updated_at': record['updated_at'],
-        }
+    return (
+        insert(base.Discussion)
+        .values(
+            source_id=record["source_id"],
+            source_type=record["source_type"],
+            title=record["title"],
+            body=record["body"],
+            url=record["url"],
+            topic_summary=record["topic_summary"],
+            topic_closed=record["topic_closed"],
+            created_at=record["created_at"],
+            updated_at=record["updated_at"],
+            clean_data=record["clean_data"],
+            history=record["history"],
+            source_closed=record["source_closed"],
+        )
+        .on_conflict_do_update(
+            index_elements=["source_id", "source_type"],
+            set_={
+                # 'history': text(
+                #     "history || jsonb_build_array(jsonb_build_object('title', EXCLUDED.title, 'body', EXCLUDED.body, 'time', NOW()::timestamp))"
+                # ),
+                "title": record["title"],
+                "body": record["body"],
+                "url": record["url"],
+                "source_closed": record["source_closed"],
+                "updated_at": record["updated_at"],
+            },
+        )
     )
 
 

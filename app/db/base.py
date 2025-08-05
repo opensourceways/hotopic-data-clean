@@ -20,7 +20,7 @@ def get_db_url():
     return f"postgresql://{user}:{password}@{host}:{port}/{db_name}"
 
 
-engine = create_engine(get_db_url())
+engine = create_engine(get_db_url(), pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -29,13 +29,14 @@ class Discussion(Base):
 
     # 添加唯一约束
     __table_args__ = (
-        UniqueConstraint('source_id', name='uq_discussion_source_id'),
+        UniqueConstraint('source_id', 'source_type', name='uq_discussion_source_id'),
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    source_id = Column(Text, nullable=False, unique=True)
+    source_id = Column(Text, nullable=False)
     title = Column(String(255), nullable=False)
     body = Column(Text)
+    solution = Column(Text)
     url = Column(String(512))
     clean_data = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -46,6 +47,7 @@ class Discussion(Base):
     history = Column(JSON)
     source_closed = Column(Boolean, default=False)
     is_deleted = Column(Boolean, default=False)
+    posted = Column(Boolean, default=False)
 
 
 def check_and_create_tables():

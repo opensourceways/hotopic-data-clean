@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.data_manager.manager import DataManager
 from fastapi import APIRouter, HTTPException, status, Body, Query
@@ -11,8 +11,8 @@ data_manager = DataManager()
 
 @router.get("/data")
 def get_data(
-        page: int = Query(1, ge=1, description="分页页码"),
-        page_size: int = Query(100, ge=1, le=500, description="每页数量")
+    page: int = Query(1, ge=1, description="分页页码"),
+    page_size: int = Query(100, ge=1, le=500, description="每页数量"),
 ):
     try:
         # 获取分页数据和总数
@@ -26,38 +26,40 @@ def get_data(
                 "current_page": page,
                 "page_size": page_size,
                 "total_items": total,
-                "total_pages": (total + page_size - 1) // page_size
-            }
+                "total_pages": (total + page_size - 1) // page_size,
+            },
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"查询失败: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
-@router.put("/data")
-def update_data(
-        data: list = Body(..., embed=True, media_type="application/json"),  # 明确指定媒体类型和嵌入格式
-        user: str = "admin"
+@router.get("/latest")
+def get_latest(
+    page: int = Query(1, ge=1, description="分页页码"),
+    page_size: int = Query(100, ge=1, le=500, description="每页数量"),
 ):
     try:
-        logger.info(f"[{datetime.now()}] 用户 {user} 发起更新，数量：{len(data)}")
+        today = datetime.now()
+        days_since_friday = (today.weekday() - 4) % 7  # 4代表周五的weekday索引
+        last_friday = today - timedelta(days=days_since_friday)
+        if days_since_friday == 0:
+            last_friday -= timedelta(days=7)
+        last_friday_start = last_friday.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        if not data_manager.validate_update_data(data):
-            raise ValueError("包含非法字段或数据格式错误")
+        posts = data_manager.fetch_posts_created_after(last_friday_start, page, page_size)
 
-        affected_rows = data_manager.update_pg_data(data)
         return {
             "status": "success",
-            "affected_rows": affected_rows,
-            "failed_count": len(data) - affected_rows
+            "data": posts,
+            "since": last_friday_start.isoformat(),
         }
-    except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error(f"更新失败: {str(e)}")
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(f"获取上周五之后帖子失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )

@@ -36,6 +36,7 @@ class Discussion(Base):
     source_id = Column(Text, nullable=False)
     title = Column(String(255), nullable=False)
     body = Column(Text)
+    solution = Column(Text)
     url = Column(String(512))
     clean_data = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

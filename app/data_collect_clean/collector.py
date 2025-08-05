@@ -430,6 +430,7 @@ class OpenUBMCForumCollector(BaseCollector):
                 topic["last_posted_at"], "%Y-%m-%dT%H:%M:%S.%fZ"
             ).strftime("%Y-%m-%d %H:%M:%S"),
             "body": self._get_topic_body(topic["id"]),
+            "solution": self._get_topic_solution(topic["id"]),
             "url": self._get_topic_url(topic["id"]),
             "type": "forum",
             "state": "closed" if self._is_closed(topic) else "open",
@@ -446,6 +447,21 @@ class OpenUBMCForumCollector(BaseCollector):
         if post_stream := post_data.get("post_stream"):
             first_post = post_stream["posts"][0]
             return BeautifulSoup(first_post.get("cooked", ""), "html.parser").get_text(
+                separator=" ", strip=True
+            )
+        return ""
+
+    def _get_topic_solution(self, topic_id: int) -> str:
+        response = self._request(
+            "GET", settings.forum_topic_detail_api.format(topic_id=topic_id)
+        )
+        if not response:
+            return ""
+
+        post_data = response.json()
+        if accepted_answer := post_data.get("accepted_answer", {}):
+            excerpt = accepted_answer.get("excerpt", "")
+            return BeautifulSoup(excerpt, "html.parser").get_text(
                 separator=" ", strip=True
             )
         return ""

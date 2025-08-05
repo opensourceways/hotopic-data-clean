@@ -22,6 +22,7 @@ class FormattedRecord:
         self,
         title,
         body,
+        solution,
         url,
         created_at,
         updated_at,
@@ -35,6 +36,7 @@ class FormattedRecord:
     ):
         self.title = title
         self.body = body
+        self.solution = solution
         self.url = url
         self.created_at = created_at
         self.updated_at = updated_at
@@ -147,6 +149,7 @@ class BaseCleaner(ABC):
         return FormattedRecord(
             title=raw_data["title"],
             body=raw_data["body"],
+            solution=raw_data["solution"],
             url=raw_data.get("url", ""),
             created_at=created_at,
             updated_at=updated_at,

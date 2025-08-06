@@ -116,6 +116,17 @@ class BaseCleaner(ABC):
     def _is_valid(self, title, body) -> bool:
         return True
 
+    def _get_exist_record(self, source_id: str):
+        with base.SessionLocal() as session:
+            existing_record = (
+                session.query(base.Discussion).
+                filter(base.Discussion.source_id == source_id).
+                first()
+            )
+            if not existing_record:
+                return None
+            return existing_record
+
     def _build_record(self, raw_data):
         if not all(k in raw_data for k in ("id", "title", "body")):
             raise ValueError("缺失必要字段")
@@ -129,7 +140,17 @@ class BaseCleaner(ABC):
         updated_at = raw_data.get("updated_at", None)
         if isinstance(updated_at, datetime):
             updated_at = updated_at.strftime("%Y-%m-%d %H:%M:%S")
-        if not self._is_exist(str(raw_data["id"])):
+
+        exist_record = self._get_exist_record(str(raw_data["id"]))
+        llm_content = ""
+        need_process = False
+
+        if not exist_record:
+            need_process = True
+        elif raw_data['body'] != exist_record.body:
+            need_process = True
+
+        if need_process:
             if self.source_type == 'mail':
                 clean_body = self._basic_clean_before_llm(raw_data["body"])
                 logger.info(f"中间清理数据：{clean_body}")
@@ -144,8 +165,6 @@ class BaseCleaner(ABC):
                 llm_content = self._llm_process(
                     f"标题：{raw_data['title']}\n内容：{clean_body}"
                 )
-        else:
-            llm_content = ""
         return FormattedRecord(
             title=raw_data["title"],
             body=raw_data["body"],
